@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ideas & questions
+    url: https://github.com/Barac9492/poolproof/discussions
+    about: Propose a spec, ask how something works, or share feedback.
+  - name: How it works
+    url: https://poolproof.dev/docs
+    about: Read the spec-author and builder guides first.

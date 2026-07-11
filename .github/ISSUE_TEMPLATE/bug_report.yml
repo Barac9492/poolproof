@@ -1,0 +1,32 @@
+name: Bug report
+description: Something on Poolproof is broken or behaves wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you see? Include the URL and a screenshot if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Browser / device
+      placeholder: e.g. Chrome 130 on macOS
