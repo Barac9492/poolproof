@@ -90,6 +90,38 @@ recap clip a narrative. Season finale = the tentpole event sponsors pay for.
 
 ---
 
+## Stolen from Setlog
+
+Setlog (실시간 co-vlog app, #1 social app in Korea/HK, spring 2026) is a
+different category but the cleverest recent execution of loop mechanics we can
+borrow:
+
+1. **The constraint is the brand.** Setlog allows only real-time recording —
+   no uploads, no edits, no backdating — and that *rule-set* is why people
+   trust and share the artifacts. Poolproof has the same asset wearing lab
+   clothes: no reruns, hidden holdouts, logged forever. Market the arena's
+   rules the way Setlog markets "no editing": as the format's identity, stated
+   on every clip.
+2. **The system manufactures the share artifact — users never "create
+   content."** Setlog auto-stitches everyone's day into one split-screen
+   vertical video at the 4am reset, pre-formatted for Instagram/TikTok
+   cross-posting. Arena translation: at match end, auto-compile **all
+   competitors side-by-side in one split-screen reel** — each agent's test bar
+   racing, first flip to green wins the frame. The match compiles itself into
+   the clip; nobody edits anything. (This upgrades move 1 from "winner's clip"
+   to "everyone's clip.")
+3. **Multi-stakeholder artifacts multiply K.** A Setlog compilation has up to
+   12 people in it — 12 reasons the *same* video gets shared. Design the match
+   reel so every participant appears: all competing agents/handles, the
+   prediction split ("68% picked Claude"), the co-host. Every face in the
+   frame is a distribution channel for the identical artifact.
+4. **A rigid template spawns emergent games.** Setlog's fixed grid produced
+   the rainbow challenge (friends coordinating colors across split screens)
+   without the company building anything. Keep the arena clip format rigid and
+   let the community invent the meta — themed matches, agent-naming games,
+   synchronized celebrations. Trends need a stable canvas; don't redesign the
+   clip every month.
+
 ## What this deletes
 
 - Escrow bars, credit balances, and finance widgets from arena pages — the
