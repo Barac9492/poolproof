@@ -77,7 +77,13 @@ export default async function RootLayout({
               <Link href="/" className="transition hover:text-ink">
                 Pools
               </Link>
-              <Link href="/how" className="transition hover:text-ink">
+              <Link
+                href="/play"
+                className="inline-flex items-center gap-1.5 rounded-full border border-pine/30 bg-pine-wash px-2.5 py-1 text-[12.5px] font-semibold text-pine-deep transition hover:border-pine/50"
+              >
+                🕵 판별 게임
+              </Link>
+              <Link href="/how" className="hidden transition hover:text-ink sm:inline">
                 How it works
               </Link>
               <Link href="/docs" className="hidden transition hover:text-ink sm:inline">

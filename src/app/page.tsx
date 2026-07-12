@@ -44,6 +44,25 @@ export default async function Home({
 
   return (
     <div>
+      {/* 판별 게임 promo — traffic-first daily game */}
+      <Link
+        href="/play"
+        className="mb-6 flex items-center gap-3 rounded-2xl border border-pine/25 bg-pine-wash px-5 py-3.5 transition hover:border-pine/45"
+      >
+        <span className="text-[22px]">🕵</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold text-ink">
+            오늘의 판별 — 사람이 쓴 글일까, AI가 쓴 글일까?
+          </span>
+          <span className="block text-[12.5px] text-ink-soft">
+            글 10개, 하루 한 판. 정답은 이미 정해진 답지 — 탐지기가 아닙니다.
+          </span>
+        </span>
+        <span className="shrink-0 rounded-lg bg-pine px-3.5 py-2 text-[13px] font-semibold text-white">
+          플레이 →
+        </span>
+      </Link>
+
       {/* hero */}
       <section className="flex flex-col items-start gap-10 pb-14 pt-6 lg:flex-row lg:items-center lg:gap-16">
         <div className="max-w-xl flex-1">
