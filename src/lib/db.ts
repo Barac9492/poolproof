@@ -256,6 +256,28 @@ const DDL = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id)`,
+  // ---- 판별 게임 (human-vs-AI text detection): a pool of items whose ground
+  // truth (source) is known by construction. `source` never leaves the server. ----
+  `CREATE TABLE IF NOT EXISTS game_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain TEXT NOT NULL,
+    body TEXT NOT NULL,
+    source TEXT NOT NULL,
+    model TEXT,
+    note TEXT NOT NULL DEFAULT ''
+  )`,
+  `CREATE TABLE IF NOT EXISTS game_plays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    player TEXT NOT NULL,
+    display TEXT NOT NULL,
+    correct INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    grid TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_plays_unique ON game_plays(day, player)`,
+  `CREATE INDEX IF NOT EXISTS idx_game_plays_day ON game_plays(day)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -285,9 +307,57 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await c.execute(
     "UPDATE slots SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL AND status = 'active'"
   );
+  await seedGameIfEmpty(c);
   const count = await c.execute("SELECT COUNT(*) AS c FROM projects");
   if (Number(count.rows[0].c) > 0) return;
   await seed(c);
+}
+
+/** The ready client (migration guaranteed) for sibling data modules like game.ts. */
+export async function getReadyClient(): Promise<Client> {
+  return db();
+}
+
+// ---------- seed: 판별 게임 item pool ----------
+// Every label is ground truth by construction — these were authored/labelled at
+// publish time, so the game grades against an answer key, not a flaky detector.
+
+async function seedGameIfEmpty(c: Client): Promise<void> {
+  const existing = await c.execute("SELECT COUNT(*) AS n FROM game_items");
+  if (Number(existing.rows[0].n) > 0) return;
+
+  // [domain, body, source, model, tell]
+  const items: [string, string, "human" | "ai", string | null, string][] = [
+    // ---- 사람이 쓴 것 (개인적·구체적·불완전) ----
+    ["리뷰", "3만원 주고 샀는데 배터리 반나절도 안 감. 근데 디자인은 진짜 예뻐서 못 버리겠음ㅋㅋ 별 3개.", "human", null, "단점을 말하면서도 못 버리는 양가감정, 구어체와 ㅋㅋ. AI는 이런 모순된 감정을 잘 안 만듦."],
+    ["SNS", "아 오늘 지하철에서 앞사람 이어폰 소리 다 새서 무슨 노래 듣는지 다 알아버림... 아이유였음", "human", null, "목적 없는 사소한 일상 관찰. AI는 이런 무쓸모 디테일을 잘 생성하지 않음."],
+    ["에세이", "스무 살 자취방 곰팡이 냄새를 아직도 기억한다. 그땐 서러웠는데 지금은 그리운 걸 보면, 사람은 결국 다 미화하나 보다.", "human", null, "특정 감각 기억 + 개인적 결론, 문장 리듬이 불규칙함."],
+    ["Q&A", "그거 그냥 재부팅하면 됨. 나도 어제 같은 거 뜨길래 껐다 켰더니 사라졌음.", "human", null, "본인 경험 기반 즉답, 짧고 무성의한 실전 톤."],
+    ["리뷰", "사장님이 서비스로 계란찜 주심. 맛은 그냥 그랬는데 정 때문에 또 가게 됨.", "human", null, "비논리적 재방문 이유(정). 감정이 논리를 이김 — 사람다움."],
+    ["SNS", "회의 3시간 했는데 결론이 '다음에 다시 얘기하자'였음. 내 인생.", "human", null, "자조적 과장, 사람 특유의 체념 유머."],
+    ["에세이", "글쓰기는 재능이 아니라 엉덩이라고 누가 그랬는데, 요즘은 그 엉덩이도 재능인 것 같다.", "human", null, "인용을 비틀어 자기 견해로. 말장난과 개인적 결론."],
+    ["Q&A", "환불은 앱에서 안 되고 고객센터 전화해야 됨. 상담원 연결까지 20분 걸리니까 각오하셈.", "human", null, "짜증 섞인 구체적 실전 팁, 반말과 경고."],
+    ["리뷰", "택배가 문 앞이 아니라 경비실로 갔는데 경비아저씨 퇴근하셔서 다음날 받음. 물건 자체는 만족.", "human", null, "제품과 무관한 배송 사고 일화 — 사람은 곁길로 샘."],
+    ["SNS", "다이어트 3일차 치킨 시킴. 나 자신이 실망스럽지만 맛있음.", "human", null, "자기모순 고백 + 솔직한 만족. AI는 이런 자책+긍정 조합을 잘 안 함."],
+
+    // ---- AI가 쓴 것 (균형·헤지·리스트·추상) ----
+    ["리뷰", "이 제품은 뛰어난 디자인과 실용성을 겸비하고 있습니다. 다만 배터리 지속 시간은 다소 아쉬울 수 있습니다. 전반적으로 만족스러운 선택이 될 것입니다.", "ai", "GPT풍", "장단점 균형 나열 + '~수 있습니다' 헤지 + 감정 부재."],
+    ["SNS", "오늘도 작은 행복을 발견하는 하루가 되었습니다. 여러분의 하루는 어떠셨나요? 😊", "ai", "GPT풍", "보편적 긍정 + 참여 유도 질문 + 이모지. 구체성 0."],
+    ["에세이", "삶은 여정과 같습니다. 때로는 힘든 순간도 있지만, 그 안에서 우리는 성장하고 배워갑니다. 중요한 것은 포기하지 않는 마음입니다.", "ai", "GPT풍", "격언 나열, 추상명사, 누구에게나 맞는 말."],
+    ["Q&A", "해당 오류는 여러 원인으로 발생할 수 있습니다. 첫째, 캐시를 삭제해 보세요. 둘째, 앱을 최신 버전으로 업데이트하세요. 셋째, 기기를 재시작해 보세요.", "ai", "GPT풍", "번호 매긴 망라형 리스트, 실제 경험 없음."],
+    ["뉴스", "인공지능 기술의 발전은 우리 사회 전반에 큰 변화를 가져오고 있습니다. 전문가들은 이러한 변화가 앞으로도 지속될 것으로 전망하고 있습니다.", "ai", "GPT풍", "무출처 '전문가들', 구체적 사실 0, 일반론."],
+    ["리뷰", "가성비가 훌륭한 제품입니다. 사용법도 간편하여 초보자에게 적합합니다. 강력히 추천드립니다!", "ai", "GPT풍", "상투어('가성비''강력 추천') 나열, 구체 사례 없음."],
+    ["설명", "건강한 생활을 위해서는 균형 잡힌 식단과 규칙적인 운동이 중요합니다. 또한 충분한 수면과 스트레스 관리도 필수적입니다.", "ai", "GPT풍", "교과서적 나열, 반박 불가능한 뻔한 말."],
+    ["SNS", "새로운 한 주가 시작되었습니다! 이번 주도 긍정적인 에너지로 가득 채워보세요. 화이팅! 💪", "ai", "GPT풍", "요일 인사 + 응원 + 이모지 공식."],
+    ["Q&A", "좋은 질문입니다! 이 주제에 대해 설명드리겠습니다. 여러 가지 측면을 종합적으로 고려해야 하는데요, 하나씩 살펴보겠습니다.", "ai", "GPT풍", "'좋은 질문입니다' 메타 서두, 실질 내용 지연."],
+    ["에세이", "독서는 마음의 양식이라고 합니다. 책을 통해 우리는 새로운 세계를 경험하고, 다양한 관점을 배울 수 있습니다.", "ai", "GPT풍", "속담 + 효용 나열, 개인 독서 경험 전무."],
+  ];
+
+  const stmts: InStatement[] = items.map(([domain, body, source, model, note]) => ({
+    sql: "INSERT INTO game_items (domain, body, source, model, note) VALUES (?, ?, ?, ?, ?)",
+    args: [domain, body, source, model, note],
+  }));
+  await c.batch(stmts, "write");
 }
 
 // ---------- seed: three founding specs from real, long-open OSS feature requests ----------
