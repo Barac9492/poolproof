@@ -44,6 +44,35 @@ npm run dev        # http://localhost:3000
 Payments and OAuth are dormant unless their env vars are set, so the app runs
 fully without any secrets.
 
+## Deploy with durable storage (Turso)
+
+The same SQLite dialect runs locally and in production — production just points
+at a hosted [Turso](https://turso.tech) database instead of a file. **Without
+`TURSO_DATABASE_URL`, a serverless deploy falls back to an ephemeral `/tmp`
+SQLite that is wiped on every cold start** (pledges, game plays, and the
+leaderboard reset). The fallback logs a loud warning and `/api/health` reports
+`"durable": false`, so a misconfigured deploy is never silent.
+
+```bash
+# one-time, with the Turso CLI
+turso db create poolproof
+turso db show poolproof --url          # → TURSO_DATABASE_URL  (libsql://…)
+turso db tokens create poolproof       # → TURSO_AUTH_TOKEN
+```
+
+Set both in the Vercel project (Production **and** Preview environments), then
+redeploy. Migrations and the founding seed run automatically on first request —
+seeding is race-safe, so concurrent cold starts on the shared DB never
+double-seed. Verify:
+
+```bash
+curl https://poolproof.dev/api/health
+# {"ok":true,"db":"turso","durable":true,"stats":{…}}
+```
+
+`db` is one of `turso` (durable), `ephemeral` (Vercel, no Turso — data resets),
+or `local` (dev file).
+
 ## Try the verification harness
 
 Run any spec's public suite against a candidate module, exactly as the server

@@ -111,9 +111,33 @@ export const SPLIT = {
 // One SQLite dialect everywhere: local file in dev, Turso (libsql://) in prod.
 // TURSO_DATABASE_URL + TURSO_AUTH_TOKEN switch persistence on without any SQL changes.
 
+export type DbBackend = "turso" | "ephemeral" | "local";
+
+/** Which persistence layer is actually in use — surfaced by /api/health. */
+export function dbBackend(): DbBackend {
+  if (process.env.TURSO_DATABASE_URL) return "turso";
+  if (process.env.VERCEL) return "ephemeral";
+  return "local";
+}
+
+let _ephemeralWarned = false;
+
 function dbUrl(): string {
   if (process.env.TURSO_DATABASE_URL) return process.env.TURSO_DATABASE_URL;
-  if (process.env.VERCEL) return "file:/tmp/poolproof.db"; // ephemeral fallback until Turso env lands
+  if (process.env.VERCEL) {
+    // No Turso env on a serverless deploy → /tmp SQLite that is WIPED on every
+    // cold start. Never silent: warn loudly so a misconfigured prod deploy is
+    // obvious in logs and via /api/health (durable:false), instead of quietly
+    // losing pledges, plays, and the leaderboard.
+    if (!_ephemeralWarned) {
+      _ephemeralWarned = true;
+      console.warn(
+        "[poolproof] TURSO_DATABASE_URL is not set on Vercel — using EPHEMERAL /tmp SQLite. " +
+          "All data resets on every cold start. Set TURSO_DATABASE_URL + TURSO_AUTH_TOKEN for durable storage."
+      );
+    }
+    return "file:/tmp/poolproof.db";
+  }
   return `file:${path.join(process.cwd(), "poolproof.db")}`;
 }
 
@@ -307,10 +331,28 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await c.execute(
     "UPDATE slots SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL AND status = 'active'"
   );
-  await seedGameIfEmpty(c);
-  const count = await c.execute("SELECT COUNT(*) AS c FROM projects");
-  if (Number(count.rows[0].c) > 0) return;
-  await seed(c);
+
+  // Seed exactly once, even if several serverless instances migrate a shared
+  // Turso DB concurrently on first deploy. claimSeed() lets one caller win per
+  // key; the COUNT check also guards DBs seeded before the flag existed.
+  if (await claimSeed(c, "seed:game_v1")) {
+    const n = await c.execute("SELECT COUNT(*) AS n FROM game_items");
+    if (Number(n.rows[0].n) === 0) await seedGame(c);
+  }
+  if (await claimSeed(c, "seed:projects_v1")) {
+    const count = await c.execute("SELECT COUNT(*) AS c FROM projects");
+    if (Number(count.rows[0].c) === 0) await seed(c);
+  }
+}
+
+/** Atomically win a one-time seed claim — true for exactly one caller across all
+ * instances (INSERT ... ON CONFLICT DO NOTHING → rowsAffected is 1 or 0). */
+async function claimSeed(c: Client, key: string): Promise<boolean> {
+  const res = await c.execute({
+    sql: "INSERT INTO meta (key, value) VALUES (?, datetime('now')) ON CONFLICT(key) DO NOTHING",
+    args: [key],
+  });
+  return Number(res.rowsAffected ?? 0) > 0;
 }
 
 /** The ready client (migration guaranteed) for sibling data modules like game.ts. */
@@ -322,10 +364,7 @@ export async function getReadyClient(): Promise<Client> {
 // Every label is ground truth by construction — these were authored/labelled at
 // publish time, so the game grades against an answer key, not a flaky detector.
 
-async function seedGameIfEmpty(c: Client): Promise<void> {
-  const existing = await c.execute("SELECT COUNT(*) AS n FROM game_items");
-  if (Number(existing.rows[0].n) > 0) return;
-
+async function seedGame(c: Client): Promise<void> {
   // [domain, body, source, model, tell]
   const items: [string, string, "human" | "ai", string | null, string][] = [
     // ---- 사람이 쓴 것 (개인적·구체적·불완전) ----
