@@ -5,6 +5,9 @@ import path from "path";
 
 export type ProjectStatus = "funding" | "open" | "building" | "green" | "refunded";
 
+/** escrow = pay-on-green pool; arena = 콜로세움 spectacle frame (ticket/prize, no finance widgets) */
+export type ProjectMode = "escrow" | "arena";
+
 export interface Project {
   id: number;
   slug: string;
@@ -17,6 +20,7 @@ export interface Project {
   goal_credits: number;
   escrowed_credits: number;
   status: ProjectStatus;
+  mode: ProjectMode;
   created_at: string;
 }
 
@@ -302,6 +306,9 @@ const DDL = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_plays_unique ON game_plays(day, player)`,
   `CREATE INDEX IF NOT EXISTS idx_game_plays_day ON game_plays(day)`,
+  // body is the natural key for the curated pool, so new items can be topped up
+  // idempotently (ON CONFLICT(body)) without duplicating what's already seeded.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_items_body ON game_items(body)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -325,6 +332,13 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await safeAlter(c, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github ON users(github_id) WHERE github_id IS NOT NULL");
   await safeAlter(c, "ALTER TABLE projects ADD COLUMN deadline_at TEXT");
   await safeAlter(c, "ALTER TABLE slots ADD COLUMN expires_at TEXT");
+  // arena frame is a first-class mode, not a slug hack (concierge test #1 graduates)
+  await safeAlter(c, "ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'escrow'");
+  const migrated = await c.execute("SELECT value FROM meta WHERE key = 'migr_arena_mode'");
+  if (migrated.rows.length === 0) {
+    await c.execute("UPDATE projects SET mode = 'arena' WHERE slug = 'wordle-solver'");
+    await c.execute("INSERT INTO meta (key, value) VALUES ('migr_arena_mode', '1')");
+  }
   await c.execute(
     "UPDATE projects SET deadline_at = datetime(created_at, '+30 days') WHERE deadline_at IS NULL AND status != 'green'"
   );
@@ -332,13 +346,15 @@ async function migrateAndSeed(c: Client): Promise<void> {
     "UPDATE slots SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL AND status = 'active'"
   );
 
-  // Seed exactly once, even if several serverless instances migrate a shared
-  // Turso DB concurrently on first deploy. claimSeed() lets one caller win per
-  // key; the COUNT check also guards DBs seeded before the flag existed.
-  if (await claimSeed(c, "seed:game_v1")) {
-    const n = await c.execute("SELECT COUNT(*) AS n FROM game_items");
-    if (Number(n.rows[0].n) === 0) await seedGame(c);
-  }
+  // Game pool: idempotent top-up (ON CONFLICT(body)), so it's inherently
+  // race-safe — several serverless instances running it concurrently on a
+  // shared Turso DB just no-op on conflicts. No claim needed.
+  await topUpGameItems(c);
+
+  // Projects: seed(c) writes fixed-id rows and is NOT idempotent, so guard it
+  // against concurrent first-deploy migrations — claimSeed lets exactly one
+  // instance win, and the COUNT check still protects DBs seeded before the flag
+  // existed.
   if (await claimSeed(c, "seed:projects_v1")) {
     const count = await c.execute("SELECT COUNT(*) AS c FROM projects");
     if (Number(count.rows[0].c) === 0) await seed(c);
@@ -364,7 +380,12 @@ export async function getReadyClient(): Promise<Client> {
 // Every label is ground truth by construction — these were authored/labelled at
 // publish time, so the game grades against an answer key, not a flaky detector.
 
-async function seedGame(c: Client): Promise<void> {
+async function topUpGameItems(c: Client): Promise<void> {
+  // Idempotent: insert the full curated pool every boot, skipping anything whose
+  // body is already present (ON CONFLICT(body)). New items land on the next
+  // deploy — including on production DBs seeded before the pool grew — without
+  // ever duplicating or wiping existing rows.
+
   // [domain, body, source, model, tell]
   const items: [string, string, "human" | "ai", string | null, string][] = [
     // ---- 사람이 쓴 것 (개인적·구체적·불완전) ----
@@ -390,10 +411,55 @@ async function seedGame(c: Client): Promise<void> {
     ["SNS", "새로운 한 주가 시작되었습니다! 이번 주도 긍정적인 에너지로 가득 채워보세요. 화이팅! 💪", "ai", "GPT풍", "요일 인사 + 응원 + 이모지 공식."],
     ["Q&A", "좋은 질문입니다! 이 주제에 대해 설명드리겠습니다. 여러 가지 측면을 종합적으로 고려해야 하는데요, 하나씩 살펴보겠습니다.", "ai", "GPT풍", "'좋은 질문입니다' 메타 서두, 실질 내용 지연."],
     ["에세이", "독서는 마음의 양식이라고 합니다. 책을 통해 우리는 새로운 세계를 경험하고, 다양한 관점을 배울 수 있습니다.", "ai", "GPT풍", "속담 + 효용 나열, 개인 독서 경험 전무."],
+
+    // ==== 2차 확장 풀 (사람) ====
+    ["리뷰", "270 시켰는데 살짝 큼. 깔창 하나 깔면 딱임. 3주 신었는데 밑창 아직 멀쩡함.", "human", null, "실측 사이즈 + 임시방편 팁. 경험에서만 나오는 디테일."],
+    ["SNS", "카페 옆자리 커플 헤어지는 중인데 나도 모르게 숨 참고 듣고 있었음... 미안", "human", null, "관음 + 죄책감 고백. 목적 없는 솔직함."],
+    ["에세이", "엄마는 김치 담글 때마다 손맛 손맛 하시는데, 나는 아직도 그 손맛이 정확히 뭔지 모르겠다.", "human", null, "세대 간 감각 격차에 대한 개인적 미결 성찰."],
+    ["Q&A", "그 식당 주차 지옥임. 근처 공영주차장 대고 5분 걸어가는 게 나음. 나 두 번 뺑뺑이 돌다 예약 놓칠 뻔.", "human", null, "구체적 실패담 기반 실전 조언."],
+    ["리뷰", "색이 사진이랑 다름. 실물이 더 칙칙함. 근데 반품하기 귀찮아서 그냥 입는 중.", "human", null, "불만을 말하지만 귀찮음이 이김 — 사람다운 비합리."],
+    ["SNS", "알람 7개 다 끄고 30분 더 잤는데 신기하게 안 늦음. 오늘 운수 좋은 날.", "human", null, "사소한 행운 자랑, 구체적 숫자(7개)."],
+    ["에세이", "군대에서 배운 건 딱 하나, 아무리 힘들어도 시간은 간다는 것. 그게 위로가 될 때가 있다.", "human", null, "개인 경험에서 나온 냉소적 위안."],
+    ["Q&A", "그 노트북 발열 진짜 심함. 쿨링패드 필수고 게임은 무리. 나는 문서작업용으로만 씀.", "human", null, "본인 사용 한계를 아는 경험적 답변."],
+    ["리뷰", "배달 왔는데 단무지를 안 줌. 전화하니 다음에 두 개 준다고 하셔서 별 4개.", "human", null, "사소한 사건 + 인간적 타협으로 별점 결정."],
+    ["SNS", "우산 안 가져왔는데 편의점 비닐우산 사기 애매해서 그냥 뛰었다. 다 젖음. 후회.", "human", null, "애매한 판단 → 후회 루프. 사람의 사후 자책."],
+    ["에세이", "첫 월급으로 부모님 내복 사드렸다는 얘기, 나는 그 돈으로 그냥 치킨 시켜 먹었다. 죄송하지만 맛있었다.", "human", null, "클리셰를 비틀어 솔직하게. 죄책감 + 만족 동시."],
+    ["Q&A", "as기간 지나면 유상수리인데 사설 가면 반값임. 나 액정 사설에서 갈았는데 아직 멀쩡하게 씀.", "human", null, "편법 실전 정보 + 본인 사례 검증."],
+    ["리뷰", "향은 좋은데 지속력이 3시간쯤? 점심에 뿌리면 저녁엔 없음. 그래도 재구매 의사는 있음.", "human", null, "구체적 단점(3시간) + 그래도 재구매하는 모순."],
+    ["SNS", "고양이가 새벽 4시에 얼굴 밟고 지나감. 잠 깼는데 화도 안 남. 이게 집사인가.", "human", null, "반려동물 일상 + 자조. 구체 시각(4시)."],
+    ["에세이", "이사할 때마다 버리는 물건들을 보면, 내가 얼마나 많은 걸 필요 없이 사들였는지 알게 된다.", "human", null, "반복된 개인 경험에서 얻은 성찰."],
+    ["Q&A", "회사 근처 국밥집 다 물어봤는데 그냥 김밥천국이 제일 안전함. 그게 진리임.", "human", null, "무성의하지만 확신에 찬 개인 결론."],
+    ["리뷰", "포장 뜯을 때 테이프가 너무 많아서 짜증. 물건은 괜찮은데 여는 데 5분 걸림.", "human", null, "제품과 무관한 사소한 불만으로 곁길."],
+    ["SNS", "친구가 결혼한다는데 축의금 얼마 해야 되나 30분째 고민 중. 이게 어른인가.", "human", null, "현실적 고민 + 자조적 정체성 질문."],
+    ["에세이", "비 오는 날 부침개 생각나는 게 유전인가. 엄마도 그랬고 할머니도 그랬다는데.", "human", null, "개인 가족사 관찰, 답 없는 추측."],
+    ["Q&A", "그 앱 결제 오류 나면 와이파이 끄고 데이터로 하면 됨. 나도 그렇게 뚫었음.", "human", null, "경험으로 찾은 우회 팁."],
+
+    // ==== 2차 확장 풀 (AI) ====
+    ["리뷰", "제품의 품질이 매우 우수하며 배송 또한 신속하게 이루어졌습니다. 다양한 상황에서 유용하게 사용할 수 있어 만족도가 높습니다.", "ai", "GPT풍", "무감정 완벽 만족, 구체 사례 없이 일반화."],
+    ["SNS", "매일 조금씩 성장하는 자신을 발견하는 것은 정말 값진 경험입니다. 오늘 하루도 의미 있게 보내시길 바랍니다! ✨", "ai", "GPT풍", "성장 서사 + 축원 + 이모지 공식."],
+    ["에세이", "행복은 멀리 있지 않습니다. 일상의 작은 순간들 속에서 우리는 진정한 기쁨을 발견할 수 있습니다.", "ai", "GPT풍", "반박 불가능한 격언, 개인 경험 0."],
+    ["Q&A", "이 문제를 해결하기 위한 몇 가지 방법을 안내해 드리겠습니다. 우선 설정을 확인하시고, 필요한 경우 재설치를 진행해 보시기 바랍니다.", "ai", "GPT풍", "정중한 망라형 안내, 실경험 부재."],
+    ["뉴스", "최근 경제 동향에 따르면 소비 심리가 점차 회복되고 있는 것으로 나타났습니다. 관계자들은 신중한 낙관론을 유지하고 있습니다.", "ai", "GPT풍", "무출처 '관계자' + '신중한 낙관' 헤지."],
+    ["리뷰", "합리적인 가격대에 우수한 성능을 제공하는 제품입니다. 처음 사용하는 분들도 쉽게 적응할 수 있도록 직관적으로 설계되었습니다.", "ai", "GPT풍", "상투적 마케팅 문구 나열."],
+    ["설명", "효과적인 시간 관리를 위해서는 우선순위를 명확히 하고, 계획을 세우며, 꾸준히 실천하는 것이 중요합니다.", "ai", "GPT풍", "교과서적 3단 나열, 뻔한 조언."],
+    ["SNS", "따뜻한 봄날, 여러분의 마음에도 활짝 꽃이 피어나기를 바랍니다. 오늘도 행복한 하루 되세요! 🌸", "ai", "GPT풍", "계절 인사 + 축원 + 이모지 공식."],
+    ["Q&A", "말씀하신 내용에 대해 도움을 드릴 수 있어 기쁩니다. 관련하여 몇 가지 고려해야 할 사항들을 정리해 보았습니다.", "ai", "GPT풍", "메타적 친절 서두, 실질 내용 지연."],
+    ["에세이", "실패는 성공의 어머니라는 말이 있습니다. 우리는 실패를 통해 배우고 더 나은 방향으로 나아갈 수 있습니다.", "ai", "GPT풍", "속담 + 효용, 구체 실패담 없음."],
+    ["리뷰", "전반적으로 만족스러운 구매였습니다. 몇 가지 개선점이 있긴 하지만 가격을 고려하면 충분히 납득할 만한 수준입니다.", "ai", "GPT풍", "균형 잡힌 헤지 결론, 개선점은 안 밝힘."],
+    ["설명", "지속 가능한 환경을 위해 우리 모두의 작은 노력이 필요합니다. 일상 속 실천이 큰 변화를 만들어냅니다.", "ai", "GPT풍", "공익 캠페인 톤, 주체 없는 당위."],
+    ["SNS", "새로운 도전을 앞두고 계신가요? 두려워하지 마세요. 모든 위대한 여정은 첫걸음에서 시작됩니다. 💪", "ai", "GPT풍", "동기부여 클리셰 + 유도 질문 + 이모지."],
+    ["Q&A", "해당 사항은 상황에 따라 다를 수 있습니다. 정확한 답변을 위해서는 추가적인 정보가 필요할 수 있는 점 양해 부탁드립니다.", "ai", "GPT풍", "극도의 헤지로 실답 회피."],
+    ["뉴스", "이번 정책은 다양한 이해관계자들에게 영향을 미칠 것으로 예상됩니다. 향후 추이를 지켜볼 필요가 있습니다.", "ai", "GPT풍", "내용 없는 전망 상투구."],
+    ["에세이", "사랑은 주는 것에서 시작됩니다. 조건 없이 베풀 때 우리는 비로소 진정한 행복을 느낄 수 있습니다.", "ai", "GPT풍", "추상 명제의 단정, 개인 서사 없음."],
+    ["리뷰", "디자인, 성능, 편의성 모두 만족스러운 제품입니다. 선물용으로도 훌륭한 선택이 될 것 같습니다. 추천합니다!", "ai", "GPT풍", "삼박자 나열 + 추천 마무리 공식."],
+    ["설명", "건강한 인간관계를 위해서는 서로에 대한 존중과 이해, 그리고 원활한 소통이 무엇보다 중요합니다.", "ai", "GPT풍", "뻔한 관계론, 반박 불가 나열."],
+    ["SNS", "한 해를 마무리하며 지난 시간을 돌아보는 것은 참 의미 있는 일입니다. 여러분은 어떤 한 해를 보내셨나요?", "ai", "GPT풍", "회고 유도 + 참여 질문 공식."],
+    ["Q&A", "좋은 접근입니다. 다만 몇 가지 측면을 추가로 고려하신다면 더욱 완성도 높은 결과를 얻으실 수 있을 것입니다.", "ai", "GPT풍", "칭찬 + 개선 제안 정형구."],
   ];
 
   const stmts: InStatement[] = items.map(([domain, body, source, model, note]) => ({
-    sql: "INSERT INTO game_items (domain, body, source, model, note) VALUES (?, ?, ?, ?, ?)",
+    sql: `INSERT INTO game_items (domain, body, source, model, note) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(body) DO NOTHING`,
     args: [domain, body, source, model, note],
   }));
   await c.batch(stmts, "write");
@@ -663,17 +729,33 @@ export async function getActiveSlot(projectId: number): Promise<Slot | undefined
   return one<Slot>("SELECT * FROM slots WHERE project_id = ? AND status = 'active' LIMIT 1", [projectId]);
 }
 
-export async function getRuns(projectId: number): Promise<(VerificationRun & { results: TestResult[] })[]> {
-  const runs = await all<VerificationRun>(
-    "SELECT * FROM verification_runs WHERE project_id = ? ORDER BY created_at DESC, id DESC",
+export type RunWithResults = VerificationRun & { builder: string; results: TestResult[] };
+
+export async function getRuns(projectId: number): Promise<RunWithResults[]> {
+  const runs = await all<VerificationRun & { builder: string }>(
+    `SELECT vr.*, s.builder AS builder FROM verification_runs vr
+     JOIN slots s ON s.id = vr.slot_id
+     WHERE vr.project_id = ? ORDER BY vr.created_at DESC, vr.id DESC`,
     [projectId]
   );
-  const out: (VerificationRun & { results: TestResult[] })[] = [];
+  const out: RunWithResults[] = [];
   for (const r of runs) {
     const results = await all<TestResult>("SELECT * FROM test_results WHERE run_id = ? ORDER BY id", [r.id]);
     out.push({ ...r, results });
   }
   return out;
+}
+
+export async function getLatestRun(projectId: number): Promise<RunWithResults | null> {
+  const r = await one<VerificationRun & { builder: string }>(
+    `SELECT vr.*, s.builder AS builder FROM verification_runs vr
+     JOIN slots s ON s.id = vr.slot_id
+     WHERE vr.project_id = ? ORDER BY vr.created_at DESC, vr.id DESC LIMIT 1`,
+    [projectId]
+  );
+  if (!r) return null;
+  const results = await all<TestResult>("SELECT * FROM test_results WHERE run_id = ? ORDER BY id", [r.id]);
+  return { ...r, results };
 }
 
 export async function getLedger(projectId: number): Promise<LedgerEntry[]> {
