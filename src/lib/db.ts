@@ -260,6 +260,23 @@ const DDL = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id)`,
+  // Free predict-the-winner (playbook move 4): no stakes, ever — the payout
+  // is a streak, not credits. One pick per slot; locked once the slot's
+  // first run resolves it.
+  `CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    slot_id INTEGER NOT NULL REFERENCES slots(id),
+    handle TEXT NOT NULL COLLATE NOCASE,
+    pick TEXT NOT NULL CHECK (pick IN ('green', 'red')),
+    resolved INTEGER NOT NULL DEFAULT 0,
+    correct INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    UNIQUE (slot_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_predictions_slot ON predictions(slot_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_predictions_handle ON predictions(handle, resolved_at)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -804,6 +821,105 @@ export async function addComment(projectId: number, handle: string, body: string
   await run("INSERT INTO comments (project_id, handle, body) VALUES (?, ?, ?)", [projectId, handle, body]);
 }
 
+// ---------- predictions (free predict-the-winner, no stakes) ----------
+
+export type Pick = "green" | "red";
+
+export interface PredictionPanelData {
+  slotId: number;
+  builder: string;
+  /** still accepting new picks — the slot's first run hasn't landed yet */
+  open: boolean;
+  green: number;
+  red: number;
+  mine: { pick: Pick; resolved: boolean; correct: boolean | null } | null;
+}
+
+/** The slot this project's prediction panel is about: the active one, or else the most recent. */
+export async function getPredictionPanel(projectId: number, handle?: string): Promise<PredictionPanelData | null> {
+  const slot = await one<Slot>(
+    "SELECT * FROM slots WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+    [projectId]
+  );
+  if (!slot) return null;
+  const counts = await all<{ pick: Pick; n: number }>(
+    "SELECT pick, COUNT(*) AS n FROM predictions WHERE slot_id = ? GROUP BY pick",
+    [slot.id]
+  );
+  const green = counts.find((c) => c.pick === "green")?.n ?? 0;
+  const red = counts.find((c) => c.pick === "red")?.n ?? 0;
+  let mine: PredictionPanelData["mine"] = null;
+  if (handle) {
+    const row = await one<{ pick: Pick; resolved: number; correct: number | null }>(
+      "SELECT pick, resolved, correct FROM predictions WHERE slot_id = ? AND handle = ?",
+      [slot.id, handle]
+    );
+    if (row) mine = { pick: row.pick, resolved: !!row.resolved, correct: row.correct === null ? null : !!row.correct };
+  }
+  return { slotId: slot.id, builder: slot.builder, open: slot.status === "active", green, red, mine };
+}
+
+/** Cast or change a pick. Locked once the slot resolves (WHERE resolved = 0 makes later attempts a no-op). */
+export async function setPrediction(projectId: number, slotId: number, handle: string, pick: Pick): Promise<void> {
+  await run(
+    `INSERT INTO predictions (project_id, slot_id, handle, pick) VALUES (?, ?, ?, ?)
+     ON CONFLICT (slot_id, handle) DO UPDATE SET pick = excluded.pick WHERE predictions.resolved = 0`,
+    [projectId, slotId, handle, pick]
+  );
+}
+
+export interface Streak {
+  current: number;
+  best: number;
+  correct: number;
+  total: number;
+}
+
+function computeStreak(picksInOrder: boolean[]): Omit<Streak, "correct" | "total"> {
+  let best = 0;
+  let run = 0;
+  for (const correct of picksInOrder) {
+    run = correct ? run + 1 : 0;
+    if (run > best) best = run;
+  }
+  let current = 0;
+  for (let i = picksInOrder.length - 1; i >= 0 && picksInOrder[i]; i--) current++;
+  return { current, best };
+}
+
+export async function getStreak(handle: string): Promise<Streak> {
+  const rows = await all<{ correct: number }>(
+    "SELECT correct FROM predictions WHERE handle = ? AND resolved = 1 ORDER BY resolved_at ASC, id ASC",
+    [handle]
+  );
+  const bools = rows.map((r) => !!r.correct);
+  const { current, best } = computeStreak(bools);
+  return { current, best, correct: bools.filter(Boolean).length, total: bools.length };
+}
+
+export interface LadderRow extends Streak {
+  handle: string;
+}
+
+/** Ranked by current streak, then best streak, then total correct calls. */
+export async function getLadder(limit = 50): Promise<LadderRow[]> {
+  const rows = await all<{ handle: string; correct: number }>(
+    "SELECT handle, correct FROM predictions WHERE resolved = 1 ORDER BY handle, resolved_at ASC, id ASC"
+  );
+  const byHandle = new Map<string, boolean[]>();
+  for (const r of rows) {
+    if (!byHandle.has(r.handle)) byHandle.set(r.handle, []);
+    byHandle.get(r.handle)!.push(!!r.correct);
+  }
+  const ladder: LadderRow[] = [];
+  for (const [handle, bools] of byHandle) {
+    const { current, best } = computeStreak(bools);
+    ladder.push({ handle, current, best, correct: bools.filter(Boolean).length, total: bools.length });
+  }
+  ladder.sort((a, b) => b.current - a.current || b.best - a.best || b.correct - a.correct);
+  return ladder.slice(0, limit);
+}
+
 export interface HarnessResult {
   name: string;
   kind: "public" | "holdout";
@@ -835,6 +951,19 @@ export async function recordRun(projectId: number, submission: string, results: 
     sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'run', ?, 0, 'ci-runner')",
     args: [projectId, `Verification run #${runId} on ${submission}: ${passed}/${results.length} tests passed → ${green ? "GREEN" : "RED"}`],
   });
+
+  // resolve any open predictions on this slot — first run to land settles them
+  const openPicks = await all<{ id: number; pick: Pick }>(
+    "SELECT id, pick FROM predictions WHERE slot_id = ? AND resolved = 0",
+    [slot.id]
+  );
+  const verdict: Pick = green ? "green" : "red";
+  for (const pred of openPicks) {
+    stmts.push({
+      sql: "UPDATE predictions SET resolved = 1, correct = ?, resolved_at = datetime('now') WHERE id = ?",
+      args: [pred.pick === verdict ? 1 : 0, pred.id],
+    });
+  }
 
   if (green) {
     const pool = p.goal_credits;

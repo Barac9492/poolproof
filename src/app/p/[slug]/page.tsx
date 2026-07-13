@@ -11,6 +11,8 @@ import {
   getProjectSocial,
   getComments,
   getBalance,
+  getPredictionPanel,
+  getStreak,
 } from "@/lib/db";
 import { listSubmissions, specExists, readPublicSuite } from "@/lib/runner";
 import { getSessionUser } from "@/lib/auth";
@@ -26,6 +28,7 @@ import Comments from "@/components/Comments";
 import { ClaimSlot, RunPanel } from "@/components/SlotPanel";
 import { VoteControl, WatchButton } from "@/components/Social";
 import Replay from "@/components/Replay";
+import PredictionPanel from "@/components/PredictionPanel";
 import { buildRunGrid } from "@/lib/grid";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +60,7 @@ export default async function ProjectPage({
   const arena = p.mode === "arena";
 
   const user = await getSessionUser();
-  const [card, tests, runs, slot, entries, comments, social] = await Promise.all([
+  const [card, tests, runs, slot, entries, comments, social, prediction] = await Promise.all([
     getContractCard(p.id),
     getAcceptanceTests(p.id),
     getRuns(p.id),
@@ -65,11 +68,13 @@ export default async function ProjectPage({
     getLedger(p.id),
     getComments(p.id),
     getProjectSocial(p.id, user?.handle),
+    getPredictionPanel(p.id, user?.handle),
   ]);
   const submissions = listSubmissions(p.slug);
   const hasSuite = specExists(p.slug);
   const suiteSource = hasSuite ? readPublicSuite(p.slug) : null;
   const balance = user ? await getBalance(user.handle) : 0;
+  const streak = user ? (await getStreak(user.handle)).current : 0;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -118,6 +123,20 @@ export default async function ProjectPage({
 
         {runs.length > 0 && (
           <Replay grid={buildRunGrid(p.slug, runs[0], runs[0].results, runs[0].builder)} />
+        )}
+
+        {prediction && (
+          <PredictionPanel
+            id={p.id}
+            slug={p.slug}
+            builder={prediction.builder}
+            open={prediction.open}
+            green={prediction.green}
+            red={prediction.red}
+            mine={prediction.mine}
+            signedIn={!!user}
+            streak={streak}
+          />
         )}
 
         {!arena && (

@@ -10,6 +10,9 @@ import {
   setVote,
   toggleWatch,
   addComment,
+  getPredictionPanel,
+  setPrediction,
+  type Pick,
 } from "@/lib/db";
 import { runVerification, specExists } from "@/lib/runner";
 import { CREDIT_PACKS, paymentsEnabled, createCheckoutSession, type PackId } from "@/lib/polar";
@@ -134,6 +137,17 @@ export async function watchAction(id: number) {
   if (!p) return;
   if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
   await toggleWatch(id, user.handle);
+  refresh(p.slug);
+}
+
+export async function predictAction(id: number, pick: Pick) {
+  const user = await getSessionUser();
+  const p = await getProject(id);
+  if (!p) return;
+  if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
+  const panel = await getPredictionPanel(id, user.handle);
+  if (!panel || !panel.open) return;
+  await setPrediction(id, panel.slotId, user.handle, pick);
   refresh(p.slug);
 }
 

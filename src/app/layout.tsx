@@ -80,6 +80,9 @@ export default async function RootLayout({
               <Link href="/how" className="transition hover:text-ink">
                 How it works
               </Link>
+              <Link href="/ladder" className="transition hover:text-ink">
+                Ladder
+              </Link>
               <Link href="/docs" className="hidden transition hover:text-ink sm:inline">
                 Docs
               </Link>

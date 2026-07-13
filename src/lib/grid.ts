@@ -81,3 +81,21 @@ export function buildRunGrid(
     text: lines.join("\n"),
   };
 }
+
+// Same rigid-canvas rule applied to a prediction: text-native, one-tap
+// shareable, never varies. "I called it" is the artifact.
+export function buildPredictionText(
+  slug: string,
+  pick: "green" | "red",
+  correct: boolean,
+  streak: number
+): string {
+  const called = pick === "green" ? "🟩 GREEN" : "🟥 RED";
+  const verdict = correct ? "correct ✓" : "wrong ✕";
+  const streakPart = correct && streak > 1 ? ` · 🔥 ${streak}-streak` : "";
+  return [
+    `poolproof · ${slug} · prediction`,
+    `called ${called} — ${verdict}${streakPart}`,
+    `${SITE}/p/${slug}`,
+  ].join("\n");
+}
