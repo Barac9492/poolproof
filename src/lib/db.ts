@@ -307,6 +307,21 @@ const DDL = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_plays_unique ON game_plays(day, player)`,
   `CREATE INDEX IF NOT EXISTS idx_game_plays_day ON game_plays(day)`,
+  // ---- friend challenges: a small leaderboard layered on top of a verified
+  // daily play. Scores stay in game_plays, so clients cannot submit a score. ----
+  `CREATE TABLE IF NOT EXISTS friend_rooms (
+    id TEXT PRIMARY KEY,
+    day TEXT NOT NULL,
+    owner_player TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS friend_room_members (
+    room_id TEXT NOT NULL REFERENCES friend_rooms(id),
+    player TEXT NOT NULL,
+    joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (room_id, player)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_friend_room_members_room ON friend_room_members(room_id, joined_at)`,
   // body is the natural key for the curated pool, so new items can be topped up
   // idempotently (ON CONFLICT(body)) without duplicating what's already seeded.
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_items_body ON game_items(body)`,

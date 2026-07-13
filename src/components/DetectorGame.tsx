@@ -1,27 +1,34 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { submitGuessesAction, type SubmitResult } from "@/lib/game-actions";
-import type { PlayItem, Source } from "@/lib/game";
+import {
+  createFriendChallengeAction,
+  joinFriendChallengeAction,
+  submitGuessesAction,
+  type SubmitResult,
+} from "@/lib/game-actions";
+import type { LeaderRow, PlayItem, Source } from "@/lib/game";
 
 export default function DetectorGame({
   day,
   items,
   signedIn,
   initialResult,
+  roomId,
 }: {
   day: string;
   items: PlayItem[];
   signedIn: boolean;
   initialResult: SubmitResult | null;
+  roomId?: string;
 }) {
   const [guesses, setGuesses] = useState<Record<number, Source>>({});
   const [result, setResult] = useState<SubmitResult | null>(initialResult);
   const [pending, startTransition] = useTransition();
 
   if (result) {
-    return <Result day={day} signedIn={signedIn} result={result} />;
+    return <Result day={day} signedIn={signedIn} result={result} roomId={roomId} />;
   }
 
   const answered = Object.keys(guesses).length;
@@ -110,32 +117,66 @@ function Result({
   day,
   signedIn,
   result,
+  roomId,
 }: {
   day: string;
   signedIn: boolean;
   result: SubmitResult;
+  roomId?: string;
 }) {
   const { correct, total, grid, reveal, alreadyPlayed, leaderboard } = result;
   const [copied, setCopied] = useState(false);
+  const [activeRoom, setActiveRoom] = useState(roomId ?? "");
+  const [friendLeaderboard, setFriendLeaderboard] = useState<LeaderRow[]>([]);
+  const [roomError, setRoomError] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const pct = total ? Math.round((correct / total) * 100) : 0;
 
-  const shareText = `오늘의 판별 ${day}\n${grid}  ${correct}/${total}\n사람일까 AI일까 → poolproof.dev/play`;
+  useEffect(() => {
+    if (!roomId) return;
+    let active = true;
+    joinFriendChallengeAction(roomId)
+      .then((room) => {
+        if (!active) return;
+        if (!room) {
+          setRoomError(true);
+          return;
+        }
+        setActiveRoom(room.roomId);
+        setFriendLeaderboard(room.leaderboard);
+      })
+      .catch(() => {
+        if (active) setRoomError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [roomId]);
 
   async function share() {
+    setSharing(true);
+    setRoomError(false);
     try {
+      let challengeRoom = activeRoom;
+      if (!challengeRoom) {
+        const room = await createFriendChallengeAction();
+        challengeRoom = room.roomId;
+        setActiveRoom(room.roomId);
+        setFriendLeaderboard(room.leaderboard);
+      }
+      const url = `${window.location.origin}/play?room=${challengeRoom}`;
+      const shareText = `오늘의 판별 ${day}\n${grid}  ${correct}/${total}\n나는 ${correct}개. 너는?`;
       if (navigator.share) {
-        await navigator.share({ text: shareText });
+        await navigator.share({ title: "오늘의 사람 vs AI 대결", text: shareText, url });
         return;
       }
-    } catch {
-      /* fall through to clipboard */
-    }
-    try {
-      await navigator.clipboard.writeText(shareText);
+      await navigator.clipboard.writeText(`${shareText}\n${url}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    } catch {
-      /* clipboard blocked — no-op */
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setRoomError(true);
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -161,9 +202,10 @@ function Result({
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <button
             onClick={share}
+            disabled={sharing}
             className="rounded-lg bg-pine px-4 py-2 text-[13.5px] font-semibold text-white transition hover:bg-pine-deep"
           >
-            {copied ? "복사됨 ✓" : "결과 공유"}
+            {sharing ? "도전장 만드는 중…" : copied ? "도전 링크 복사됨 ✓" : activeRoom ? "다음 친구 지목" : "친구에게 도전"}
           </button>
           <Link
             href="/"
@@ -173,6 +215,37 @@ function Result({
           </Link>
         </div>
       </div>
+
+      {(activeRoom || roomError) && (
+        <section className="mt-3 overflow-hidden rounded-2xl border border-pine/25 bg-card">
+          <div className="flex items-center justify-between border-b border-line bg-pine-wash px-4 py-3">
+            <div>
+              <h2 className="text-[13.5px] font-semibold text-ink">친구 대결 순위</h2>
+              <p className="mt-0.5 text-[11.5px] text-muted">같은 링크로 들어온 친구끼리 비교합니다.</p>
+            </div>
+            <span className="font-mono text-[11px] text-pine-deep">{friendLeaderboard.length}명</span>
+          </div>
+          {roomError ? (
+            <p className="px-4 py-5 text-center text-[12.5px] text-fail">
+              이 도전장은 만료됐거나 불러올 수 없어요. 새 도전장을 만들어주세요.
+            </p>
+          ) : friendLeaderboard.length === 0 ? (
+            <p className="px-4 py-5 text-center text-[12.5px] text-muted">순위를 불러오는 중…</p>
+          ) : (
+            friendLeaderboard.map((row, index) => (
+              <div
+                key={`${row.display}-${index}`}
+                className={`flex items-center gap-3 px-4 py-2.5 text-[13px] ${index > 0 ? "border-t border-line" : ""}`}
+              >
+                <span className="w-6 font-mono text-[12px] font-semibold text-faint">{index + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-medium text-ink">{row.display}</span>
+                <span className="hidden tracking-[0.06em] sm:inline">{row.grid}</span>
+                <span className="font-mono text-[12.5px] font-bold text-pine">{row.correct}/{row.total}</span>
+              </div>
+            ))
+          )}
+        </section>
+      )}
 
       <Link
         href="/play/submit"

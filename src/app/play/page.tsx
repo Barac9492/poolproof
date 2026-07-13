@@ -34,7 +34,13 @@ async function readPlayer(): Promise<string | null> {
   return id && id.length >= 8 ? `anon:${id}` : null;
 }
 
-export default async function PlayPage() {
+export default async function PlayPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ room?: string }>;
+}) {
+  const { room } = await searchParams;
+  const roomId = room && /^[A-Za-z0-9_-]{8}$/.test(room) ? room : undefined;
   const day = todayKey();
   const player = await readPlayer();
   const signedIn = !!(await getSessionUser());
@@ -61,7 +67,7 @@ export default async function PlayPage() {
     <div className="mx-auto max-w-2xl">
       <header className="pb-6">
         <p className="font-mono text-[11.5px] font-medium tracking-[0.16em] text-pine">
-          오늘의 판별 · {day} · UTC
+          {roomId ? "친구가 보낸 도전장" : "오늘의 판별"} · {day} · UTC
         </p>
         <h1 className="mt-3 text-[36px] font-bold leading-[1.05] tracking-[-0.03em] text-ink sm:text-[46px]">
           사람이 썼을까,
@@ -80,7 +86,13 @@ export default async function PlayPage() {
         </div>
       </header>
 
-      <DetectorGame day={day} items={items} signedIn={signedIn} initialResult={initialResult} />
+      <DetectorGame
+        day={day}
+        items={items}
+        signedIn={signedIn}
+        initialResult={initialResult}
+        roomId={roomId}
+      />
 
       <p className="mt-10 text-center font-mono text-[11px] text-faint">
         정답지는 서버에만 있습니다 · 채점은 제출 후 공개 ·{" "}
