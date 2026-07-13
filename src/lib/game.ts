@@ -58,22 +58,59 @@ export function todayKey(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** djb2 — deterministic string hash, stable across processes. */
-function hash(s: string): number {
+/** djb2 fold of a string → 32-bit seed. */
+function seedOf(s: string): number {
   let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) + s.charCodeAt(i)) >>> 0;
   return h >>> 0;
+}
+
+/**
+ * murmur3 finalizer — a strong 32-bit avalanche. A weak hash (plain djb2 of
+ * `day:id`) barely reorders the pool day to day, so the same handful of items
+ * always sort to the top and any positional pattern is learnable. This mixes
+ * hard, so each day looks independent.
+ */
+function mix32(x: number): number {
+  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  return (x ^ (x >>> 16)) >>> 0;
+}
+
+/** Deterministic per-(day, id) key. `salt` gives independent orderings. */
+function dayKey(daySeed: number, id: number, salt: number): number {
+  return mix32((daySeed ^ Math.imul(id, 0x9e3779b1) ^ Math.imul(salt, 0x27d4eb2f)) >>> 0);
 }
 
 async function pickDailyRows(day: string): Promise<ItemRow[]> {
   const c = await getReadyClient();
   const res = await c.execute("SELECT id, domain, body, source, model, note FROM game_items");
-  const rows = res.rows as unknown as ItemRow[];
-  return rows
-    .map((r) => ({ r, k: hash(`${day}:${r.id}`) }))
-    .sort((a, b) => a.k - b.k || a.r.id - b.r.id)
-    .slice(0, DAILY_COUNT)
-    .map((x) => x.r);
+  const seed = seedOf(day);
+  const keyed = (res.rows as unknown as ItemRow[])
+    .map((r) => ({ r, sel: dayKey(seed, r.id, 0), ord: dayKey(seed, r.id, 1) }))
+    .sort((a, b) => a.sel - b.sel || a.r.id - b.r.id);
+
+  // Balance the day: exactly half human, half AI, so every player faces the
+  // same fair split and a high score means real discrimination, not a lucky
+  // lopsided draw. Deterministic per day, no randomness.
+  const HALF = DAILY_COUNT / 2;
+  const humans = keyed.filter((x) => x.r.source === "human").slice(0, HALF);
+  const ais = keyed.filter((x) => x.r.source === "ai").slice(0, HALF);
+  const chosen = [...humans, ...ais];
+
+  // Backfill from whatever's left if one source is short, so the count stays
+  // stable even on a small pool.
+  if (chosen.length < DAILY_COUNT) {
+    const have = new Set(chosen.map((x) => x.r.id));
+    for (const x of keyed) {
+      if (chosen.length >= DAILY_COUNT) break;
+      if (!have.has(x.r.id)) chosen.push(x);
+    }
+  }
+
+  // Present in an order keyed independently of selection (salt 1), so the 5/5
+  // split can't be read off the positions.
+  return chosen.sort((a, b) => a.ord - b.ord || a.r.id - b.r.id).map((x) => x.r);
 }
 
 /** Today's items with the answer stripped — safe to send to the client. */
