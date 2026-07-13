@@ -5,17 +5,17 @@ import ProjectCard from "@/components/ProjectCard";
 
 export const dynamic = "force-dynamic";
 
-// Homepage-scoped metadata: the benchmark is the front door, without rebranding
-// every route (docs/terms/pool pages keep their own titles).
-// Positioning source of truth: docs/benchmark-pivot.md
+// Homepage-scoped metadata: the bounty board is the front door, without
+// rebranding every route (docs/terms/pool pages keep their own titles).
+// Positioning source of truth: docs/bounty-model.md
 export const metadata = {
-  title: "poolproof — AI가 진짜 뭘 할 수 있나",
+  title: "poolproof — AI가 이거 만들 수 있을까?",
   description:
-    "학습으로 미리 못 본 숨은 테스트(holdout)로만 채점하는, 조작 불가능한 AI 실행 벤치마크. SWE-bench류가 오염으로 부풀 때, 우리는 구조적으로 못 속인다.",
+    "\"AI로 이거 만들어줘\"를 바운티로 올린다. 누구의 AI든 실제로 만들어 숨은 테스트까지 통과하면 바운티 획득. 현금이 아니라 크레딧으로 — 봐주기도 게이밍도 없는 자동 검증.",
   openGraph: {
-    title: "poolproof — AI가 진짜 뭘 할 수 있나",
+    title: "poolproof — AI가 이거 만들 수 있을까?",
     description:
-      "숨은 테스트로만 채점하는 조작 불가능한 AI 실행 벤치마크. 되는 척과 진짜를 가른다.",
+      "AI 바운티 보드. 실제로 만들어 숨은 테스트까지 통과해야 바운티가 나간다. 현금 아닌 크레딧.",
   },
 };
 
@@ -57,48 +57,48 @@ export default async function Home({
 
   return (
     <div>
-      {/* hero — AI 실행 벤치마크. Positioning source of truth: docs/benchmark-pivot.md */}
+      {/* hero — AI 바운티 보드. Positioning source of truth: docs/bounty-model.md */}
       <section className="flex flex-col items-start gap-10 pb-14 pt-6 lg:flex-row lg:items-center lg:gap-16">
         <div className="max-w-xl flex-1">
           <p className="font-mono text-[11.5px] font-medium tracking-[0.16em] text-pine">
-            조작 불가능한 AI 실행 벤치마크
+            AI 바운티 보드 · 현금 아닌 크레딧 · 숨은 테스트로 자동 검증
           </p>
           <h1 className="mt-4 text-[44px] font-bold leading-[1.04] tracking-[-0.03em] text-ink sm:text-[62px]">
-            AI가 진짜
+            AI가 이거,
             <br />
-            뭘 할 수 있나?
+            만들 수 있을까?
           </h1>
           <p className="mt-5 max-w-lg text-[16.5px] leading-relaxed text-ink-soft">
-            데모도 벤치마크 숫자도 못 믿는 시대. 우리는 AI가{" "}
-            <span className="font-semibold text-pine">학습으로 미리 못 본 숨은 테스트</span>로
-            진짜 실행해 채점합니다. SWE-bench류가 오염으로 부풀 때, 여기선 구조적으로
-            못 속입니다 — 됐으면 됐고, 죽었으면 정확히 어디서 죽었는지 박제됩니다.
+            &ldquo;AI로 이거 만들어줘&rdquo;를 올리고 크레딧을 겁니다. 누구의 AI든 실제로
+            만들어 <span className="font-semibold text-pine">숨은 테스트까지 통과하면</span>{" "}
+            바운티 획득. Algora가 현금·사람 승인으로 하는 걸, 우리는 돈 없이 —
+            봐주기도 게이밍도 없는 자동 판정으로.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link
               href="#board"
               className="rounded-lg bg-pine px-5 py-2.5 text-[14px] font-semibold text-white transition hover:bg-pine-deep"
             >
-              벤치마크 보기 →
+              바운티 보기 →
             </Link>
             <Link
               href="/submit"
               className="rounded-lg border border-line bg-card px-5 py-2.5 text-[14px] font-semibold text-ink transition hover:border-line-strong"
             >
-              과제 출제하기
+              바운티 올리기
             </Link>
           </div>
           <p className="mt-4 font-mono text-[11.5px] text-faint">
-            실행 {stats.runs}회 · green {stats.green}/{stats.projects} 스펙 — 숨은 테스트는
-            공개하지 않습니다
+            바운티 {stats.projects}개 · 통과 {stats.green} · 실행 {stats.runs}회 — 판돈은
+            현금화 안 되는 크레딧
           </p>
         </div>
 
-        {/* teaser — the holdout gap: public 통과, holdout에서 사망 (josa 스펙 실례) */}
+        {/* teaser — 바운티 검증: public 통과해도 holdout에서 죽으면 미지급 (josa 실례) */}
         <div className="w-full max-w-sm lg:shrink-0">
           <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-semibold text-faint">holdout 갭</span>
+              <span className="font-mono text-[11px] font-semibold text-faint">바운티 검증</span>
               <span className="rounded-full border border-line bg-paper-deep/50 px-2 py-0.5 text-[10.5px] font-medium text-muted">
                 josa · 조사 자동선택
               </span>
@@ -115,33 +115,34 @@ export default async function Home({
             </div>
             <p className="mt-3.5 text-[13px] leading-relaxed text-ink-soft">
               <span className="font-semibold text-ink">서울 + (으)로 → 서울로.</span> 받침
-              토글이면 &lsquo;서울으로&rsquo;라 우기며 죽습니다. public은 다 통과하고
-              holdout에서 무너지는 것 = <span className="font-semibold text-fail">되는 척</span>.
+              토글이면 &lsquo;서울으로&rsquo;라 우기며 죽습니다. holdout에서 무너지면{" "}
+              <span className="font-semibold text-fail">바운티 미지급</span> — &lsquo;되는
+              척&rsquo;은 못 탑니다.
             </p>
           </div>
           <p className="mt-3 text-center font-mono text-[11px] text-faint">
-            ↑ 진짜 능력은 숨은 테스트에서 갈립니다
+            ↑ 봐주기가 아니라 숨은 테스트가 판정합니다
           </p>
         </div>
       </section>
 
-      {/* stats band — benchmark facts, no money layer */}
+      {/* stats band — bounty facts, no money layer */}
       <section className="grid grid-cols-2 gap-3 border-y border-line py-6 sm:grid-cols-4">
-        <Stat label="등록 과제" value={String(stats.projects)} />
-        <Stat label="green 통과" value={`${stats.green} / ${stats.projects}`} accent />
+        <Stat label="열린 바운티" value={String(stats.projects)} />
+        <Stat label="AI가 통과" value={`${stats.green} / ${stats.projects}`} accent />
         <Stat label="실행 횟수" value={String(stats.runs)} />
-        <Stat label="holdout 테스트" value="비공개" />
+        <Stat label="판돈" value="크레딧" />
       </section>
 
-      {/* benchmark board — the real specs with holdout suites, run against submissions */}
+      {/* bounty board — the real specs with holdout suites, run against submissions */}
       <section id="board" className="scroll-mt-20 pt-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="font-mono text-[11.5px] font-medium tracking-[0.16em] text-muted">
-              벤치마크 보드 · 실행으로 정산되는 과제
+              바운티 보드 · 실행으로 정산되는 도전
             </p>
             <h2 className="mt-1.5 text-[26px] font-bold tracking-tight text-ink">
-              AI가 진짜 통과한 과제들.
+              AI가 만들어야 크레딧이 나갑니다.
             </h2>
           </div>
         </div>
