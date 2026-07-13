@@ -174,10 +174,24 @@ function Result({
         </div>
       </div>
 
+      <Link
+        href="/play/submit"
+        className="mt-3 flex items-center gap-3 rounded-xl border border-pine/25 bg-pine-wash px-4 py-3 transition hover:border-pine/45"
+      >
+        <span className="text-[20px]">✍️</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold text-ink">직접 문제 내기</span>
+          <span className="block text-[12px] text-ink-soft">
+            내가 쓴 글이 &lsquo;사람 답&rsquo;이 되어 다른 사람에게 출제돼요.
+          </span>
+        </span>
+        <span className="shrink-0 text-[13px] font-semibold text-pine-deep">→</span>
+      </Link>
+
       {!signedIn && (
         <Link
           href="/login?next=/play"
-          className="mt-3 block rounded-xl border border-dashed border-line-strong bg-card px-4 py-3 text-center text-[13px] text-muted transition hover:text-ink"
+          className="mt-2.5 block rounded-xl border border-dashed border-line-strong bg-card px-4 py-3 text-center text-[13px] text-muted transition hover:text-ink"
         >
           로그인하면 리더보드에 <span className="font-semibold text-ink">이름</span>이 올라가요 →
         </Link>
@@ -206,7 +220,9 @@ function Result({
                     isHuman ? "bg-ink text-white" : "bg-pine text-white"
                   }`}
                 >
-                  {isHuman ? "🙋 사람" : `🤖 AI${r.model ? ` · ${r.model}` : ""}`}
+                  {isHuman
+                    ? `🙋 사람${r.author ? ` · @${r.author}` : ""}`
+                    : `🤖 AI${r.model && r.model !== "bank" ? ` · ${r.model}` : ""}`}
                 </span>
                 {known && (
                   <span className={`text-[11.5px] font-semibold ${r.ok ? "text-pine" : "text-fail"}`}>
@@ -215,7 +231,10 @@ function Result({
                 )}
                 <span className="ml-auto text-[10.5px] text-faint">{r.domain}</span>
               </div>
-              <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-soft">
+              {r.prompt && (
+                <p className="mt-2 text-[11.5px] leading-relaxed text-faint">주제: {r.prompt}</p>
+              )}
+              <p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-soft">
                 {r.body}
               </p>
               {r.note && <p className="mt-2 text-[12.5px] leading-relaxed text-muted">→ {r.note}</p>}

@@ -16,6 +16,8 @@ export interface RevealItem extends PlayItem {
   source: Source;
   model: string | null;
   note: string;
+  author: string | null;
+  prompt: string | null;
   guess: Source | null;
   ok: boolean;
 }
@@ -44,6 +46,8 @@ interface ItemRow {
   source: Source;
   model: string | null;
   note: string;
+  author: string | null;
+  prompt: string | null;
 }
 
 const DAILY_COUNT = 10;
@@ -84,7 +88,7 @@ function dayKey(daySeed: number, id: number, salt: number): number {
 
 async function pickDailyRows(day: string): Promise<ItemRow[]> {
   const c = await getReadyClient();
-  const res = await c.execute("SELECT id, domain, body, source, model, note FROM game_items");
+  const res = await c.execute("SELECT id, domain, body, source, model, note, author, prompt FROM game_items");
   const seed = seedOf(day);
   const keyed = (res.rows as unknown as ItemRow[])
     .map((r) => ({ r, sel: dayKey(seed, r.id, 0), ord: dayKey(seed, r.id, 1) }))
@@ -151,6 +155,8 @@ function answersOnly(rows: ItemRow[]): RevealItem[] {
     source: r.source,
     model: r.model,
     note: r.note,
+    author: r.author,
+    prompt: r.prompt,
     guess: null,
     ok: false,
   }));
@@ -188,7 +194,7 @@ export async function gradeAndRecord(
 
   const reveal: RevealItem[] = rows.map((r) => {
     const guess = guesses[r.id] ?? null;
-    return { id: r.id, domain: r.domain, body: r.body, source: r.source, model: r.model, note: r.note, guess, ok: guess === r.source };
+    return { id: r.id, domain: r.domain, body: r.body, source: r.source, model: r.model, note: r.note, author: r.author, prompt: r.prompt, guess, ok: guess === r.source };
   });
   const marks = reveal.map((r) => r.ok);
   const correct = marks.filter(Boolean).length;

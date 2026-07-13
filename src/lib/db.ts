@@ -1,5 +1,6 @@
 import { createClient, type Client, type InStatement } from "@libsql/client";
 import path from "path";
+import { generateAiCounterpart } from "./ai";
 
 // ---------- types ----------
 
@@ -309,6 +310,29 @@ const DDL = [
   // body is the natural key for the curated pool, so new items can be topped up
   // idempotently (ON CONFLICT(body)) without duplicating what's already seeded.
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_game_items_body ON game_items(body)`,
+  // ---- supply loop: creative challenges players answer, whose submissions
+  // (human) get paired against an AI counterpart and served to others. ----
+  `CREATE TABLE IF NOT EXISTS challenge_prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    ai_answer TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_id INTEGER NOT NULL REFERENCES challenge_prompts(id),
+    author TEXT NOT NULL,
+    body TEXT NOT NULL,
+    ai_body TEXT NOT NULL DEFAULT '',
+    ai_model TEXT,
+    owns INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_submissions_author ON submissions(author)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -345,11 +369,24 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await c.execute(
     "UPDATE slots SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL AND status = 'active'"
   );
+  // game_items gains attribution once user submissions flow into the pool.
+  await safeAlter(c, "ALTER TABLE game_items ADD COLUMN author TEXT");
+  await safeAlter(c, "ALTER TABLE game_items ADD COLUMN prompt TEXT");
+  await safeAlter(c, "ALTER TABLE game_items ADD COLUMN submission_id INTEGER");
+  // Anti-AI-submission attestation: the writer swears the answer is their own,
+  // AI-free. A false attestation is the one thing that poisons the answer key.
+  await safeAlter(c, "ALTER TABLE submissions ADD COLUMN no_ai INTEGER NOT NULL DEFAULT 0");
 
   // Game pool: idempotent top-up (ON CONFLICT(body)), so it's inherently
   // race-safe — several serverless instances running it concurrently on a
   // shared Turso DB just no-op on conflicts. No claim needed.
   await topUpGameItems(c);
+
+  // Challenges: seed once (claimSeed guard + COUNT check).
+  if (await claimSeed(c, "seed:challenges_v1")) {
+    const n = await c.execute("SELECT COUNT(*) AS n FROM challenge_prompts");
+    if (Number(n.rows[0].n) === 0) await seedChallenges(c);
+  }
 
   // Projects: seed(c) writes fixed-id rows and is NOT idempotent, so guard it
   // against concurrent first-deploy migrations — claimSeed lets exactly one
@@ -461,6 +498,34 @@ async function topUpGameItems(c: Client): Promise<void> {
     sql: `INSERT INTO game_items (domain, body, source, model, note) VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(body) DO NOTHING`,
     args: [domain, body, source, model, note],
+  }));
+  await c.batch(stmts, "write");
+}
+
+// ---------- seed: creative challenges players answer (supply loop) ----------
+// ai_answer is the early-stage bank counterpart, used until ANTHROPIC_API_KEY
+// is set (see lib/ai.ts). Kept generic/AI-flavored on purpose.
+
+async function seedChallenges(c: Client): Promise<void> {
+  // [kind, prompt, bank AI answer]
+  const prompts: [string, string, string][] = [
+    ["삼행시", "'사랑'으로 삼행시를 지어주세요.", "사: 사람은 누구나 소중한 존재입니다.\n랑: 랑데부처럼 우리의 만남도 특별합니다.\n(각 줄이 설명적이고 교훈적 — AI 삼행시의 전형)"],
+    ["삼행시", "'커피'로 삼행시를 지어주세요.", "커: 커다란 행복은 작은 것에서 시작됩니다.\n피: 피곤한 하루, 한 잔의 여유를 즐겨보세요."],
+    ["카톡", "친구에게 약속을 갑자기 취소하는 카톡 메시지를 써주세요.", "안녕! 정말 미안한데 갑자기 사정이 생겨서 오늘 약속을 취소해야 할 것 같아. 다음에 꼭 다시 만나자. 이해해줘서 고마워!"],
+    ["카톡", "택배가 안 왔을 때 판매자에게 문의하는 카톡 메시지를 써주세요.", "안녕하세요. 주문한 상품이 아직 도착하지 않아 문의드립니다. 배송 현황을 확인해 주시면 감사하겠습니다. 빠른 답변 부탁드립니다."],
+    ["한줄평", "방금 본 영화에 대한 한 줄 평을 써주세요.", "감동과 재미를 모두 갖춘 작품으로, 많은 분들께 추천하고 싶은 영화입니다."],
+    ["끝말잇기", "'바다'로 시작하는 짧은 문장을 만들어주세요.", "바다는 우리에게 무한한 영감과 평온함을 선사하는 소중한 자연입니다."],
+    ["자기소개", "소개팅 자리에서 할 첫 자기소개 한두 문장을 써주세요.", "안녕하세요, 만나서 반갑습니다. 저는 긍정적이고 새로운 사람들과의 만남을 좋아하는 사람입니다."],
+    ["댓글", "귀여운 강아지 영상에 달 댓글을 하나 써주세요.", "너무 사랑스럽네요! 보는 것만으로도 힐링이 됩니다. 행복한 하루 되세요 😊"],
+    // 관계·직장 메시지 앵글 — "상대가 보낸 게 AI인지" 감을 훈련하는 시나리오
+    ["연애 카톡", "연인에게 보내는 '오늘 하루 어땠어?' 안부 카톡을 써주세요.", "오늘 하루는 어떻게 보냈어? 항상 너의 하루가 행복으로 가득하길 바라. 힘든 일이 있었다면 언제든 이야기해줘, 내가 곁에 있을게."],
+    ["연애 카톡", "다툰 뒤 화해하자고 먼저 보내는 카톡을 써주세요.", "먼저 연락해서 미안해. 우리가 다툰 건 서로를 소중하게 생각하기 때문이라고 생각해. 앞으로 더 잘 소통하며 좋은 관계를 만들어가자."],
+    ["직장 메시지", "휴가를 쓰겠다고 상사에게 보내는 메시지를 써주세요.", "안녕하세요 팀장님. 개인 사정으로 인해 다음 주 휴가를 신청하고자 합니다. 업무에 지장이 없도록 사전에 인수인계를 마치겠습니다. 확인 부탁드립니다."],
+    ["직장 메시지", "동료에게 급하게 도움을 요청하는 메시지를 써주세요.", "안녕하세요, 바쁘신 와중에 죄송합니다. 급한 사안이 생겨 도움을 요청드립니다. 잠시 시간 내주실 수 있을까요? 정말 감사하겠습니다."],
+  ];
+  const stmts: InStatement[] = prompts.map(([kind, prompt, ai_answer]) => ({
+    sql: "INSERT INTO challenge_prompts (kind, prompt, ai_answer) VALUES (?, ?, ?)",
+    args: [kind, prompt, ai_answer],
   }));
   await c.batch(stmts, "write");
 }
@@ -1163,4 +1228,144 @@ export async function createSpec(input: {
     },
   ];
   await batch(stmts);
+}
+
+// ---------- 판별 게임 supply loop: challenges & submissions ----------
+
+export interface ChallengePrompt {
+  id: number;
+  kind: string;
+  prompt: string;
+  ai_answer: string | null;
+  active: number;
+  created_at: string;
+}
+
+export type SubmissionStatus = "pending" | "published" | "rejected";
+
+export interface Submission {
+  id: number;
+  prompt_id: number;
+  author: string;
+  body: string;
+  ai_body: string;
+  ai_model: string | null;
+  owns: number;
+  no_ai: number;
+  status: SubmissionStatus;
+  created_at: string;
+}
+
+export async function getActivePrompts(): Promise<ChallengePrompt[]> {
+  return all<ChallengePrompt>("SELECT * FROM challenge_prompts WHERE active = 1 ORDER BY id");
+}
+
+export async function getPrompt(id: number): Promise<ChallengePrompt | undefined> {
+  return one<ChallengePrompt>("SELECT * FROM challenge_prompts WHERE id = ?", [id]);
+}
+
+/**
+ * Record a player's answer to a challenge. Generates the AI counterpart (live
+ * Claude if ANTHROPIC_API_KEY is set, else the curated bank) and stores the
+ * submission as `pending` — it enters the game only after admin approval.
+ * `owns` is the required ownership/consent claim.
+ */
+export async function createSubmission(input: {
+  promptId: number;
+  author: string;
+  body: string;
+  owns: boolean;
+  noAi: boolean;
+}): Promise<number | null> {
+  const prompt = await getPrompt(input.promptId);
+  if (!prompt || prompt.active !== 1) return null;
+  const ai = await generateAiCounterpart({
+    prompt: prompt.prompt,
+    kind: prompt.kind,
+    ai_answer: prompt.ai_answer,
+  });
+  return run(
+    `INSERT INTO submissions (prompt_id, author, body, ai_body, ai_model, owns, no_ai, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [input.promptId, input.author, input.body, ai.body, ai.model, input.owns ? 1 : 0, input.noAi ? 1 : 0]
+  );
+}
+
+export interface TopicAnswer {
+  body: string;
+  author: string | null;
+  source: Source;
+  model: string | null;
+}
+
+/**
+ * All published answers to one prompt — every person's human answer plus the AI
+ * counterpart(s). This is the "same topic, compare people" surface: humans side
+ * by side, with the AI hidden among them until reveal.
+ */
+export async function getTopicAnswers(
+  promptId: number
+): Promise<{ prompt: ChallengePrompt; answers: TopicAnswer[] } | null> {
+  const prompt = await getPrompt(promptId);
+  if (!prompt) return null;
+  const answers = await all<TopicAnswer>(
+    `SELECT game_items.body, game_items.author, game_items.source, game_items.model
+     FROM game_items JOIN submissions ON submissions.id = game_items.submission_id
+     WHERE submissions.prompt_id = ? AND submissions.status = 'published'
+     ORDER BY game_items.source = 'ai', game_items.id`,
+    [promptId]
+  );
+  return { prompt, answers };
+}
+
+export type Source = "human" | "ai";
+
+export async function getPendingSubmissions(): Promise<(Submission & { kind: string; prompt: string })[]> {
+  return all<Submission & { kind: string; prompt: string }>(
+    `SELECT submissions.*, challenge_prompts.kind, challenge_prompts.prompt
+     FROM submissions JOIN challenge_prompts ON challenge_prompts.id = submissions.prompt_id
+     WHERE submissions.status = 'pending' ORDER BY submissions.created_at ASC`
+  );
+}
+
+export async function getUserSubmissions(handle: string): Promise<(Submission & { kind: string })[]> {
+  return all<Submission & { kind: string }>(
+    `SELECT submissions.*, challenge_prompts.kind
+     FROM submissions JOIN challenge_prompts ON challenge_prompts.id = submissions.prompt_id
+     WHERE submissions.author = ? COLLATE NOCASE ORDER BY submissions.created_at DESC`,
+    [handle]
+  );
+}
+
+/**
+ * Approve a pending submission: publish it into the game pool as a human/AI
+ * item pair sharing the same prompt, so the existing daily picker and grading
+ * pick them up unchanged. Idempotent — a non-pending submission is a no-op.
+ */
+export async function approveSubmission(id: number): Promise<boolean> {
+  const s = await one<Submission & { kind: string; prompt: string }>(
+    `SELECT submissions.*, challenge_prompts.kind, challenge_prompts.prompt
+     FROM submissions JOIN challenge_prompts ON challenge_prompts.id = submissions.prompt_id
+     WHERE submissions.id = ?`,
+    [id]
+  );
+  if (!s || s.status !== "pending") return false;
+  const aiBody = (s.ai_body || "").trim();
+  if (!aiBody) return false; // no counterpart → nothing to pair against
+  await batch([
+    { sql: "UPDATE submissions SET status = 'published' WHERE id = ?", args: [id] },
+    {
+      sql: "INSERT INTO game_items (domain, body, source, model, note, author, prompt, submission_id) VALUES (?, ?, 'human', NULL, ?, ?, ?, ?)",
+      args: [s.kind, s.body, `사람이 쓴 답 — @${s.author}`, s.author, s.prompt, id],
+    },
+    {
+      sql: "INSERT INTO game_items (domain, body, source, model, note, author, prompt, submission_id) VALUES (?, ?, 'ai', ?, ?, NULL, ?, ?)",
+      args: [s.kind, aiBody, s.ai_model, "AI가 같은 주제로 쓴 답", s.prompt, id],
+    },
+  ]);
+  return true;
+}
+
+export async function rejectSubmission(id: number): Promise<void> {
+  await run("UPDATE submissions SET status = 'rejected' WHERE id = ? AND status = 'pending'", [id]);
 }

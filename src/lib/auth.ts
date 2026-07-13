@@ -63,6 +63,12 @@ export function isValidHandle(handle: string): boolean {
   return HANDLE_RE.test(handle);
 }
 
+/** Moderation gate for the submission review queue. Set ADMIN_HANDLE to enable. */
+export function isAdmin(handle: string | undefined | null): boolean {
+  const admin = process.env.ADMIN_HANDLE?.trim();
+  return !!admin && !!handle && handle.toLowerCase() === admin.toLowerCase();
+}
+
 // ---------- sessions (stateless HMAC token: uid.exp.sig) ----------
 
 async function createSessionToken(userId: number): Promise<string> {

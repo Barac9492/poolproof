@@ -3,8 +3,10 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { getSessionUser } from "./auth";
+import { redirect } from "next/navigation";
+import { getSessionUser, isAdmin } from "./auth";
 import { gradeAndRecord, getLeaderboard, todayKey, type Source, type GradeResult, type LeaderRow } from "./game";
+import { createSubmission, approveSubmission, rejectSubmission } from "./db";
 
 const ANON_COOKIE = "pp_player";
 const ANON_TTL_S = 60 * 60 * 24 * 365;
@@ -41,4 +43,45 @@ export async function submitGuessesAction(guesses: Record<number, Source>): Prom
   const leaderboard = await getLeaderboard(day);
   revalidatePath("/play");
   return { ...result, leaderboard };
+}
+
+// ---------- supply loop: submit a challenge answer (login required) ----------
+
+/**
+ * Submit an answer to a challenge. Login is required here (the ownership claim
+ * needs an accountable identity); anonymous play stays open. The submission
+ * enters the review queue as `pending`.
+ */
+export async function submitChallengeAction(promptId: number, formData: FormData) {
+  const user = await getSessionUser();
+  if (!user) redirect(`/login?next=${encodeURIComponent("/play/submit")}`);
+
+  const body = String(formData.get("body") || "").trim().slice(0, 1000);
+  const isChecked = (v: FormDataEntryValue | null) => v === "on" || v === "1";
+  const owns = isChecked(formData.get("owns"));
+  const noAi = isChecked(formData.get("no_ai"));
+
+  if (!body || body.length < 4) redirect(`/play/submit?prompt=${promptId}&error=body`);
+  if (!owns) redirect(`/play/submit?prompt=${promptId}&error=owns`);
+  if (!noAi) redirect(`/play/submit?prompt=${promptId}&error=noai`);
+
+  const id = await createSubmission({ promptId, author: user.handle, body, owns, noAi });
+  if (id === null) redirect(`/play/submit?prompt=${promptId}&error=prompt`);
+  redirect("/play/submit?done=1");
+}
+
+// ---------- moderation (admin only) ----------
+
+export async function approveSubmissionAction(id: number) {
+  const user = await getSessionUser();
+  if (!isAdmin(user?.handle)) return;
+  await approveSubmission(id);
+  revalidatePath("/play/review");
+}
+
+export async function rejectSubmissionAction(id: number) {
+  const user = await getSessionUser();
+  if (!isAdmin(user?.handle)) return;
+  await rejectSubmission(id);
+  revalidatePath("/play/review");
 }
