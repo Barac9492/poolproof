@@ -1,168 +1,61 @@
-import Link from "next/link";
-import { listProjects, getStats, getUserVotes, type SortKey } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
-import ProjectCard from "@/components/ProjectCard";
-import HeroDemo from "@/components/HeroDemo";
+import DailyArena from "@/components/DailyArena";
+import { messageTests, toPublicBattle } from "@/lib/battles";
 
-export const dynamic = "force-dynamic";
-
-const FILTERS = [
-  { key: "", label: "All" },
-  { key: "funding", label: "Funding" },
-  { key: "building", label: "Building" },
-  { key: "green", label: "Green" },
-] as const;
-
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: "best", label: "Best" },
-  { key: "voted", label: "Top voted" },
-  { key: "raised", label: "Most escrowed" },
-  { key: "new", label: "New" },
-];
+function seoulDayKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string; sort?: string }>;
+  searchParams: Promise<{ room?: string }>;
 }) {
-  const { filter = "", sort = "best" } = await searchParams;
-  const user = await getSessionUser();
-  const projects = await listProjects(
-    filter,
-    (SORTS.some((s) => s.key === sort) ? sort : "best") as SortKey
-  );
-  const stats = await getStats();
-  const myVotes = user ? await getUserVotes(user.handle) : new Map<number, number>();
-
-  const qs = (f: string, s: string) => {
-    const p = new URLSearchParams();
-    if (f) p.set("filter", f);
-    if (s && s !== "best") p.set("sort", s);
-    const str = p.toString();
-    return str ? `/?${str}` : "/";
-  };
+  const { room } = await searchParams;
+  const roomId = room && /^[A-Za-z0-9_-]{8}$/.test(room) ? room : undefined;
 
   return (
-    <div>
-      {/* hero */}
-      <section className="flex flex-col items-start gap-10 pb-14 pt-6 lg:flex-row lg:items-center lg:gap-16">
-        <div className="max-w-xl flex-1">
-          <p className="font-mono text-[11.5px] font-medium tracking-[0.16em] text-pine">
-            COMMUNITY-FUNDED SOFTWARE, VERIFIED
-          </p>
-          <h1 className="mt-4 text-[44px] font-bold leading-[1.04] tracking-[-0.03em] text-ink sm:text-[62px]">
-            Fund outcomes,
-            <br />
-            not attempts.
-          </h1>
-          <p className="mt-5 max-w-lg text-[16.5px] leading-relaxed text-ink-soft">
-            A spec here is an executable test suite, not a wish. Backers escrow credits behind it,
-            a builder stakes for an exclusive slot, and a real CI run decides.{" "}
-            <span className="font-semibold text-pine">Money moves only on green.</span>
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link
-              href="/submit"
-              className="rounded-lg bg-pine px-5 py-2.5 text-[14px] font-semibold text-white transition hover:bg-pine-deep"
-            >
-              Post a spec
-            </Link>
-            <Link
-              href="/how"
-              className="rounded-lg border border-line bg-card px-5 py-2.5 text-[14px] font-semibold text-ink transition hover:border-line-strong"
-            >
-              How it works
-            </Link>
+    <>
+      <section className="detector-hero daily-hero">
+        <div className="detector-copy">
+          <div className="detector-badge"><span /> 사람 vs AI · 오늘의 베타 세트</div>
+          <h1>사람과 AI,<br /><em>몇 개나 구별할까요?</em></h1>
+          <p>출처가 확인된 사람 글과 같은 주제로 만든 AI 글을 나란히 보여드립니다. 감으로 고르고, 정답으로 점수를 확인하세요.</p>
+          <div className="hero-actions">
+            <a href="#play">오늘의 판별 시작 <span>→</span></a>
+            <small>로그인 없이 바로 시작</small>
+          </div>
+          <div className="trust-row">
+            <span>정답이 있는 게임</span><span>하루 한 판</span><span>친구 점수 대결</span>
           </div>
         </div>
-        <div className="w-full max-w-sm lg:shrink-0">
-          <HeroDemo />
-          <p className="mt-3 text-center font-mono text-[11px] text-faint">
-            ↑ the whole product, one loop
-          </p>
+
+        <div className="daily-proof-card" aria-label="결과 공유 예시">
+          <header><span>오늘의 판별</span><b>결과 예시</b></header>
+          <div className="proof-score"><strong>2</strong><span>/3</span></div>
+          <h2>AI 냄새 사냥꾼</h2>
+          <p>🟩🟥🟩</p>
+          <div className="proof-rank"><span>단톡방 순위</span><strong>1위</strong><em>친구 평균 1.6</em></div>
+          <div className="proof-cta">나는 2개. 너는? <span>↗</span></div>
         </div>
       </section>
 
-      {/* stats band */}
-      <section className="grid grid-cols-2 gap-3 border-y border-line py-6 sm:grid-cols-4">
-        <Stat label="credits in escrow" value={stats.escrowed.toLocaleString()} />
-        <Stat label="released on green" value={stats.released.toLocaleString()} accent />
-        <Stat label="verification runs" value={String(stats.runs)} />
-        <Stat label="specs green" value={`${stats.green} / ${stats.projects}`} />
+      <section className="sample-heading" id="play">
+        <p>{roomId ? "친구가 보낸 도전장" : "오늘의 판별"}</p>
+        <h2>{roomId ? <>같은 문제로<br />점수를 겨뤄보세요.</> : <>사람이 쓴 문장을<br />골라보세요.</>}</h2>
+        <span>{messageTests.length}문제를 모두 풀면 점수와 공유용 결과가 공개됩니다.</span>
       </section>
-
-      {/* pools */}
-      <section className="pt-10">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="font-mono text-[11.5px] font-medium tracking-[0.16em] text-muted">
-              OPEN POOLS
-            </p>
-            <h2 className="mt-1.5 text-[26px] font-bold tracking-tight text-ink">
-              Specs people can back right now.
-            </h2>
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div className="flex gap-1.5">
-            {FILTERS.map((f) => (
-              <Link
-                key={f.key}
-                href={qs(f.key, sort)}
-                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-                  filter === f.key
-                    ? "bg-ink text-white"
-                    : "border border-line bg-card text-muted hover:border-line-strong hover:text-ink"
-                }`}
-              >
-                {f.label}
-              </Link>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] text-faint">sort</span>
-            {SORTS.map((s) => (
-              <Link
-                key={s.key}
-                href={qs(filter, s.key)}
-                className={`rounded-full px-3 py-1 text-[12px] font-medium transition ${
-                  sort === s.key ? "bg-pine-soft text-pine-deep" : "text-muted hover:text-ink"
-                }`}
-              >
-                {s.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-6 space-y-3.5">
-          {projects.length === 0 ? (
-            <p className="rounded-2xl border border-line bg-card px-5 py-10 text-center text-[14px] text-muted">
-              Nothing here yet — be the first to post a spec.
-            </p>
-          ) : (
-            projects.map((p) => <ProjectCard key={p.id} p={p} myVote={myVotes.get(p.id) ?? 0} />)
-          )}
-        </div>
-
-        <p className="mt-8 text-center font-mono text-[11.5px] text-faint">
-          every founding spec is based on a real, long-open OSS feature request
-        </p>
-      </section>
-    </div>
-  );
-}
-
-function Stat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="px-2">
-      <div
-        className={`font-mono text-[26px] font-bold tracking-tight ${accent ? "text-pine" : "text-ink"}`}
-      >
-        {value}
+      <div className="arena-shell">
+        <DailyArena
+          battles={messageTests.map(toPublicBattle)}
+          dayKey={seoulDayKey()}
+          roomId={roomId}
+        />
       </div>
-      <div className="mt-0.5 text-[12px] font-medium text-muted">{label}</div>
-    </div>
+    </>
   );
 }

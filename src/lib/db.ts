@@ -256,6 +256,41 @@ const DDL = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id)`,
+  `CREATE TABLE IF NOT EXISTS battle_votes (
+    battle_id TEXT NOT NULL,
+    visitor_id TEXT NOT NULL,
+    choice TEXT NOT NULL CHECK (choice IN ('A', 'B')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (battle_id, visitor_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_battle_votes_battle ON battle_votes(battle_id)`,
+  `CREATE TABLE IF NOT EXISTS generated_battles (
+    id TEXT PRIMARY KEY,
+    visitor_id TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '사용자 질문',
+    model_a TEXT NOT NULL,
+    model_b TEXT NOT NULL,
+    response_a TEXT NOT NULL,
+    response_b TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_generated_battles_visitor ON generated_battles(visitor_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS challenge_rooms (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS challenge_scores (
+    room_id TEXT NOT NULL REFERENCES challenge_rooms(id),
+    visitor_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    pattern TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (room_id, visitor_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_challenge_scores_room ON challenge_scores(room_id, score DESC, updated_at ASC)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -703,6 +738,123 @@ export async function grantCredits(handle: string, amount: number): Promise<void
 
 export async function getUserById(id: number): Promise<UserRow | undefined> {
   return one<UserRow>("SELECT * FROM users WHERE id = ?", [id]);
+}
+
+// ---------- anonymous blind battles ----------
+
+export async function recordBattleVote(
+  battleId: string,
+  visitorId: string,
+  choice: "A" | "B"
+): Promise<void> {
+  await run(
+    `INSERT INTO battle_votes (battle_id, visitor_id, choice) VALUES (?, ?, ?)
+     ON CONFLICT(battle_id, visitor_id) DO UPDATE SET choice = excluded.choice`,
+    [battleId, visitorId, choice]
+  );
+}
+
+export async function getBattleVoteCounts(battleId: string): Promise<{ a: number; b: number }> {
+  const rows = await all<{ choice: string; count: number }>(
+    "SELECT choice, COUNT(*) AS count FROM battle_votes WHERE battle_id = ? GROUP BY choice",
+    [battleId]
+  );
+  return rows.reduce(
+    (acc, row) => {
+      if (row.choice === "A") acc.a = Number(row.count);
+      if (row.choice === "B") acc.b = Number(row.count);
+      return acc;
+    },
+    { a: 0, b: 0 }
+  );
+}
+
+export interface GeneratedBattleRow {
+  id: string;
+  visitor_id: string;
+  prompt: string;
+  category: string;
+  model_a: string;
+  model_b: string;
+  response_a: string;
+  response_b: string;
+  created_at: string;
+}
+
+export async function getGeneratedBattle(id: string): Promise<GeneratedBattleRow | undefined> {
+  return one<GeneratedBattleRow>("SELECT * FROM generated_battles WHERE id = ?", [id]);
+}
+
+export async function countRecentGeneratedBattles(visitorId: string): Promise<number> {
+  const row = await one<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM generated_battles WHERE visitor_id = ? AND created_at > datetime('now', '-1 day')",
+    [visitorId]
+  );
+  return Number(row?.count ?? 0);
+}
+
+export async function saveGeneratedBattle(input: {
+  id: string;
+  visitorId: string;
+  prompt: string;
+  category?: string;
+  modelA: string;
+  modelB: string;
+  responseA: string;
+  responseB: string;
+}): Promise<void> {
+  await run(
+    `INSERT INTO generated_battles
+      (id, visitor_id, prompt, category, model_a, model_b, response_a, response_b)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [input.id, input.visitorId, input.prompt, input.category ?? "사용자 질문", input.modelA, input.modelB, input.responseA, input.responseB]
+  );
+}
+
+// ---------- daily challenge rooms ----------
+
+export interface ChallengeScoreRow {
+  display_name: string;
+  score: number;
+  total: number;
+  pattern: string;
+  updated_at: string;
+}
+
+export async function createChallengeRoom(id: string): Promise<void> {
+  await run("INSERT INTO challenge_rooms (id) VALUES (?)", [id]);
+}
+
+export async function saveChallengeScore(input: {
+  roomId: string;
+  visitorId: string;
+  displayName: string;
+  score: number;
+  total: number;
+  pattern: string;
+}): Promise<void> {
+  await run(
+    `INSERT INTO challenge_scores (room_id, visitor_id, display_name, score, total, pattern)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(room_id, visitor_id) DO UPDATE SET
+       display_name = excluded.display_name,
+       score = excluded.score,
+       total = excluded.total,
+       pattern = excluded.pattern,
+       updated_at = datetime('now')`,
+    [input.roomId, input.visitorId, input.displayName, input.score, input.total, input.pattern]
+  );
+}
+
+export async function getChallengeLeaderboard(roomId: string): Promise<ChallengeScoreRow[]> {
+  return all<ChallengeScoreRow>(
+    `SELECT display_name, score, total, pattern, updated_at
+     FROM challenge_scores
+     WHERE room_id = ?
+     ORDER BY score DESC, updated_at ASC
+     LIMIT 30`,
+    [roomId]
+  );
 }
 
 // ---------- mutations ----------

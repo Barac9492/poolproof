@@ -1,28 +1,18 @@
 import Legal from "@/components/Legal";
 
-export const metadata = { title: "Privacy — Poolproof" };
+export const metadata = { title: "개인정보처리방침" };
 
 export default function PrivacyPage() {
   return (
-    <Legal title="Privacy Policy" updated="2026-07-11">
-      <h2>What we collect</h2>
-      <p>
-        A handle and a salted password hash. No email is required in the beta. Your pledges,
-        stakes, specs and verification runs are recorded against your handle on public ledgers —
-        that is the product, not a side effect.
-      </p>
-      <h2>What we do not do</h2>
-      <p>
-        No ad trackers, no analytics beyond aggregate request logs, no sale of data, no
-        third-party data sharing. Session cookies are HttpOnly and used only to keep you signed
-        in.
-      </p>
-      <h2>Public by design</h2>
-      <p>
-        Ledger entries are permanent and public. Choose your handle accordingly. Account deletion
-        removes your credentials; ledger history remains, attributed to the (now unclaimable)
-        handle, because escrow history must stay auditable.
-      </p>
+    <Legal title="개인정보처리방침" updated="2026-07-13">
+      <h2>수집하는 정보</h2>
+      <p>로그인 없이도 테스트에 참여할 수 있습니다. 중복 투표를 막기 위한 무작위 방문자 식별자, 제출한 메시지, AI 대안, 선택한 답변과 접속 시각을 저장합니다. 전화번호·이메일·링크는 저장 전에 자동으로 마스킹하지만, 이름과 민감한 내용은 사용자가 직접 제거해야 합니다.</p>
+      <h2>선택 데이터</h2>
+      <p>익명화된 선택 결과는 사람들이 문장을 어떻게 인식하는지에 대한 통계와 서비스 개선에 사용됩니다. 테스트 결과는 AI 작성 여부를 확정하는 탐지 결과가 아닙니다. 민감정보가 포함된 메시지는 제출하지 마세요.</p>
+      <h2>광고와 제3자 제공</h2>
+      <p>현재 행동 기반 광고 추적기를 사용하지 않으며 개인정보를 판매하지 않습니다. 향후 스폰서 대결은 명확하게 광고임을 표시하고, 광고주가 개별 사용자를 식별할 수 있는 정보는 제공하지 않습니다.</p>
+      <h2>삭제 요청</h2>
+      <p>계정 또는 사용자 제출 콘텐츠의 삭제를 원하면 서비스 운영자에게 요청할 수 있습니다. 법적 보존 의무가 없는 정보는 확인 후 삭제합니다.</p>
     </Legal>
   );
 }

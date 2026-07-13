@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "nodejs";
-export const alt = "Poolproof — money moves only on green";
+export const alt = "Poolproof — 사람과 AI, 몇 개나 구별할까요?";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -15,7 +15,7 @@ export default function OgImage() {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          background: "#f1f3ee",
+          background: "#f7f7f5",
           padding: 72,
           fontFamily: "sans-serif",
         }}
@@ -26,7 +26,7 @@ export default function OgImage() {
               width: 56,
               height: 56,
               borderRadius: 14,
-              background: "#131a15",
+              background: "#171714",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -37,7 +37,7 @@ export default function OgImage() {
                 width: 22,
                 height: 22,
                 borderRadius: 22,
-                background: "#2fbf80",
+                background: "#ff5c35",
                 display: "flex",
               }}
             />
@@ -48,15 +48,15 @@ export default function OgImage() {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 84, fontWeight: 800, color: "#131a15", lineHeight: 1.05, letterSpacing: -3 }}>
-            Fund outcomes,
+          <div style={{ fontSize: 78, fontWeight: 800, color: "#171714", lineHeight: 1.08, letterSpacing: -4 }}>
+            사람과 AI,
           </div>
-          <div style={{ fontSize: 84, fontWeight: 800, color: "#15633f", lineHeight: 1.05, letterSpacing: -3 }}>
-            not attempts.
+          <div style={{ fontSize: 78, fontWeight: 800, color: "#ff5c35", lineHeight: 1.08, letterSpacing: -4 }}>
+            몇 개나 구별할까요?
           </div>
         </div>
-        <div style={{ fontSize: 30, color: "#3d4a42" }}>
-          Escrow releases only when every acceptance test passes a real CI run.
+        <div style={{ fontSize: 30, color: "#55554f" }}>
+          오늘의 판별을 풀고 친구들과 점수를 겨뤄보세요.
         </div>
       </div>
     ),

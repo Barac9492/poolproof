@@ -1,49 +1,20 @@
 import Legal from "@/components/Legal";
 
-export const metadata = { title: "Terms — Poolproof" };
+export const metadata = { title: "이용약관" };
 
 export default function TermsPage() {
   return (
-    <Legal title="Terms of Service" updated="2026-07-11">
-      <h2>1. What Poolproof is</h2>
-      <p>
-        Poolproof is a coordination platform. Backers pool credits behind an executable
-        specification; builders stake collateral for time-boxed build slots; an automated
-        verification run decides whether escrow releases. Credits are prepaid platform units for
-        funding verified software builds. They are not equity, securities, tokens, deposits, or
-        investments, and they carry no right to profit.
-      </p>
-      <h2>2. Escrow and release</h2>
-      <p>
-        Pledged credits are held in project escrow. They are released if and only if a
-        verification run passes every acceptance test in the project&apos;s suite, including
-        holdout tests, within the project deadline. The split at release is: 74% to the builder
-        (plus stake return), 15% to the maintenance annuity reserve, 3% to the spec author, 8% to
-        the platform. The escrow ledger on each project page is the authoritative record.
-      </p>
-      <h2>3. Builders and stakes</h2>
-      <p>
-        Builders claim slots by staking 5% of the pool. Builders bear their own build costs. A
-        slot that expires without green forfeits part of its stake. Submitting code you do not
-        have the right to submit is prohibited.
-      </p>
-      <h2>4. Outputs and licensing</h2>
-      <p>
-        Verified outputs are published under the MIT license together with the exact test suite
-        they passed. The legal status of AI-generated code is unsettled in several jurisdictions;
-        treat outputs as public goods. Poolproof makes no warranty that outputs are fit for any
-        particular purpose beyond the published acceptance suite.
-      </p>
-      <h2>5. Honest-failure principle</h2>
-      <p>
-        Red runs, expired slots and refunds are recorded permanently. We do not edit history, and
-        project resets require a logged reason on the ledger.
-      </p>
-      <h2>6. Beta status</h2>
-      <p>
-        This deployment is a public beta. Credits have no cash value in the beta and balances may
-        be reset with notice on the site.
-      </p>
+    <Legal title="이용약관" updated="2026-07-13">
+      <h2>1. 서비스</h2>
+      <p>Poolproof는 동일한 질문에 대한 복수 AI 모델의 답변을 익명으로 비교하고 사용자의 선호를 집계하는 공개 베타 서비스입니다. 선택에는 금전적 가치가 없으며 승패에 따른 상금이나 손실도 없습니다.</p>
+      <h2>2. 사용자 콘텐츠</h2>
+      <p>질문을 제출할 때 타인의 개인정보, 기밀정보, 불법 콘텐츠 또는 권리를 침해하는 내용을 입력해서는 안 됩니다. 제출된 질문은 품질과 안전 검토 후 공개 대결에 사용될 수 있습니다.</p>
+      <h2>3. 결과와 통계</h2>
+      <p>AI 답변과 모델 정보는 오류를 포함할 수 있습니다. 선택 비율은 참여자의 취향을 보여주는 통계이며 모델의 객관적인 우열이나 특정 목적에 대한 적합성을 보증하지 않습니다.</p>
+      <h2>4. 공정성</h2>
+      <p>답변의 A/B 위치는 편향을 줄이기 위해 조정될 수 있습니다. 스폰서 대결은 명확히 표시하며 광고주가 투표 결과를 변경하거나 불리한 결과를 숨길 수 없도록 운영합니다.</p>
+      <h2>5. 베타 운영</h2>
+      <p>공개 베타 기간에는 기능, 저장 데이터와 제공 방식이 변경될 수 있습니다. 중대한 변경은 서비스 안에서 안내합니다.</p>
     </Legal>
   );
 }
