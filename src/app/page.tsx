@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listProjects, getStats, getUserVotes, type SortKey } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import ProjectCard from "@/components/ProjectCard";
+import LiveVerdict from "@/components/LiveVerdict";
 
 export const dynamic = "force-dynamic";
 
@@ -94,36 +95,8 @@ export default async function Home({
           </p>
         </div>
 
-        {/* teaser — 바운티 검증: public 통과해도 holdout에서 죽으면 미지급 (josa 실례) */}
-        <div className="w-full max-w-sm lg:shrink-0">
-          <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-semibold text-faint">바운티 검증</span>
-              <span className="rounded-full border border-line bg-paper-deep/50 px-2 py-0.5 text-[10.5px] font-medium text-muted">
-                josa · 조사 자동선택
-              </span>
-            </div>
-            <div className="mt-3 space-y-2 font-mono text-[12.5px]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted">public (보이는 케이스)</span>
-                <span className="tracking-[0.06em]">🟩🟩🟩🟩🟩🟩</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted">holdout (숨은 함정)</span>
-                <span className="tracking-[0.06em]">🟩🟩💀</span>
-              </div>
-            </div>
-            <p className="mt-3.5 text-[13px] leading-relaxed text-ink-soft">
-              <span className="font-semibold text-ink">서울 + (으)로 → 서울로.</span> 받침
-              토글이면 &lsquo;서울으로&rsquo;라 우기며 죽습니다. holdout에서 무너지면{" "}
-              <span className="font-semibold text-fail">바운티 미지급</span> — &lsquo;되는
-              척&rsquo;은 못 탑니다.
-            </p>
-          </div>
-          <p className="mt-3 text-center font-mono text-[11px] text-faint">
-            ↑ 봐주기가 아니라 숨은 테스트가 판정합니다
-          </p>
-        </div>
+        {/* teaser — the tension core, live: public cascade → holdout reveal → live/death */}
+        <LiveVerdict />
       </section>
 
       {/* stats band — bounty facts, no money layer */}

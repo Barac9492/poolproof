@@ -75,13 +75,7 @@ export default async function RootLayout({
             <Logo />
             <nav className="flex items-center gap-4 text-[13px] font-medium text-ink-soft sm:gap-5">
               <Link href="/" className="transition hover:text-ink">
-                Pools
-              </Link>
-              <Link
-                href="/play"
-                className="inline-flex items-center gap-1.5 rounded-full border border-pine/30 bg-pine-wash px-2.5 py-1 text-[12.5px] font-semibold text-pine-deep transition hover:border-pine/50"
-              >
-                🕵 판별 게임
+                바운티
               </Link>
               <Link href="/how" className="hidden transition hover:text-ink sm:inline">
                 How it works
@@ -93,7 +87,7 @@ export default async function RootLayout({
                 href="/submit"
                 className="rounded-lg bg-pine px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-pine-deep"
               >
-                Post a spec
+                바운티 올리기
               </Link>
               {user ? (
                 <span className="flex items-center gap-2.5">
