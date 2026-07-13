@@ -1,10 +1,8 @@
-import type { VerificationRun, TestResult } from "@/lib/db";
+import type { RunWithResults } from "@/lib/db";
+import { buildRunGrid } from "@/lib/grid";
+import ShareGrid from "@/components/ShareGrid";
 
-export default function RunResults({
-  runs,
-}: {
-  runs: (VerificationRun & { results: TestResult[] })[];
-}) {
+export default function RunResults({ runs, slug }: { runs: RunWithResults[]; slug: string }) {
   if (runs.length === 0) return null;
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-card">
@@ -26,8 +24,11 @@ export default function RunResults({
               <span className="text-[13.5px] text-ink-soft">
                 run #{run.id} · <span className="font-mono text-[12.5px]">{run.submission}</span>
               </span>
-              <span className="ml-auto font-mono text-[11.5px] text-faint">
-                {run.passed}/{run.passed + run.failed} · {run.created_at} UTC
+              <span className="ml-auto flex items-center gap-2.5">
+                <ShareGrid text={buildRunGrid(slug, run, run.results, run.builder).text} compact />
+                <span className="font-mono text-[11.5px] text-faint">
+                  {run.passed}/{run.passed + run.failed} · {run.created_at} UTC
+                </span>
               </span>
             </summary>
             <ul className="border-t border-line/60 bg-paper/50 py-1">

@@ -25,6 +25,8 @@ import Ledger from "@/components/Ledger";
 import Comments from "@/components/Comments";
 import { ClaimSlot, RunPanel } from "@/components/SlotPanel";
 import { VoteControl, WatchButton } from "@/components/Social";
+import Replay from "@/components/Replay";
+import { buildRunGrid } from "@/lib/grid";
 
 export const dynamic = "force-dynamic";
 
@@ -51,9 +53,8 @@ export default async function ProjectPage({
   const p = await getProject(slug);
   if (!p) notFound();
 
-  // Concierge test #1: this pool runs on the AI 콜로세움 (arena) frame — ticket/prize,
-  // not crin/escrow. Swap the old-model finance widgets for the arena banner on this slug.
-  const arena = p.slug === "wordle-solver";
+  // arena mode: 콜로세움 frame (ticket/prize) — no finance widgets
+  const arena = p.mode === "arena";
 
   const user = await getSessionUser();
   const [card, tests, runs, slot, entries, comments, social] = await Promise.all([
@@ -114,6 +115,10 @@ export default async function ProjectPage({
 
       <div className="mt-7 space-y-4">
         {arena && <ArenaBanner />}
+
+        {runs.length > 0 && (
+          <Replay grid={buildRunGrid(p.slug, runs[0], runs[0].results, runs[0].builder)} />
+        )}
 
         {!arena && (
           <>
@@ -176,7 +181,7 @@ export default async function ProjectPage({
         {card && <ContractCard card={card} />}
         <TestList tests={tests} />
         {suiteSource && <SuiteSource slug={p.slug} source={suiteSource} />}
-        <RunResults runs={runs} />
+        <RunResults runs={runs} slug={p.slug} />
         <Comments id={p.id} slug={p.slug} comments={comments} signedIn={!!user} />
         {!arena && <Ledger entries={entries} />}
       </div>

@@ -5,6 +5,9 @@ import path from "path";
 
 export type ProjectStatus = "funding" | "open" | "building" | "green" | "refunded";
 
+/** escrow = pay-on-green pool; arena = 콜로세움 spectacle frame (ticket/prize, no finance widgets) */
+export type ProjectMode = "escrow" | "arena";
+
 export interface Project {
   id: number;
   slug: string;
@@ -17,6 +20,7 @@ export interface Project {
   goal_credits: number;
   escrowed_credits: number;
   status: ProjectStatus;
+  mode: ProjectMode;
   created_at: string;
 }
 
@@ -304,6 +308,13 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await safeAlter(c, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github ON users(github_id) WHERE github_id IS NOT NULL");
   await safeAlter(c, "ALTER TABLE projects ADD COLUMN deadline_at TEXT");
   await safeAlter(c, "ALTER TABLE slots ADD COLUMN expires_at TEXT");
+  // arena frame is a first-class mode, not a slug hack (concierge test #1 graduates)
+  await safeAlter(c, "ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'escrow'");
+  const migrated = await c.execute("SELECT value FROM meta WHERE key = 'migr_arena_mode'");
+  if (migrated.rows.length === 0) {
+    await c.execute("UPDATE projects SET mode = 'arena' WHERE slug = 'wordle-solver'");
+    await c.execute("INSERT INTO meta (key, value) VALUES ('migr_arena_mode', '1')");
+  }
   await c.execute(
     "UPDATE projects SET deadline_at = datetime(created_at, '+30 days') WHERE deadline_at IS NULL AND status != 'green'"
   );
@@ -674,17 +685,33 @@ export async function getActiveSlot(projectId: number): Promise<Slot | undefined
   return one<Slot>("SELECT * FROM slots WHERE project_id = ? AND status = 'active' LIMIT 1", [projectId]);
 }
 
-export async function getRuns(projectId: number): Promise<(VerificationRun & { results: TestResult[] })[]> {
-  const runs = await all<VerificationRun>(
-    "SELECT * FROM verification_runs WHERE project_id = ? ORDER BY created_at DESC, id DESC",
+export type RunWithResults = VerificationRun & { builder: string; results: TestResult[] };
+
+export async function getRuns(projectId: number): Promise<RunWithResults[]> {
+  const runs = await all<VerificationRun & { builder: string }>(
+    `SELECT vr.*, s.builder AS builder FROM verification_runs vr
+     JOIN slots s ON s.id = vr.slot_id
+     WHERE vr.project_id = ? ORDER BY vr.created_at DESC, vr.id DESC`,
     [projectId]
   );
-  const out: (VerificationRun & { results: TestResult[] })[] = [];
+  const out: RunWithResults[] = [];
   for (const r of runs) {
     const results = await all<TestResult>("SELECT * FROM test_results WHERE run_id = ? ORDER BY id", [r.id]);
     out.push({ ...r, results });
   }
   return out;
+}
+
+export async function getLatestRun(projectId: number): Promise<RunWithResults | null> {
+  const r = await one<VerificationRun & { builder: string }>(
+    `SELECT vr.*, s.builder AS builder FROM verification_runs vr
+     JOIN slots s ON s.id = vr.slot_id
+     WHERE vr.project_id = ? ORDER BY vr.created_at DESC, vr.id DESC LIMIT 1`,
+    [projectId]
+  );
+  if (!r) return null;
+  const results = await all<TestResult>("SELECT * FROM test_results WHERE run_id = ? ORDER BY id", [r.id]);
+  return { ...r, results };
 }
 
 export async function getLedger(projectId: number): Promise<LedgerEntry[]> {
