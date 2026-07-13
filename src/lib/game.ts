@@ -39,11 +39,6 @@ export interface LeaderRow {
   grid: string;
 }
 
-export interface FriendRoomResult {
-  roomId: string;
-  leaderboard: LeaderRow[];
-}
-
 interface ItemRow {
   id: number;
   domain: string;
@@ -236,66 +231,4 @@ export async function getDayStats(day: string): Promise<{ players: number; avg: 
   });
   const row = res.rows[0] as unknown as { players: number; avg: number };
   return { players: Number(row.players), avg: Number(row.avg) };
-}
-
-// ---------- friend challenge rooms ----------
-
-async function getFriendLeaderboard(roomId: string, limit = 30): Promise<LeaderRow[]> {
-  const c = await getReadyClient();
-  const res = await c.execute({
-    sql: `SELECT p.display, p.correct, p.total, p.grid
-          FROM friend_room_members m
-          JOIN friend_rooms r ON r.id = m.room_id
-          JOIN game_plays p ON p.day = r.day AND p.player = m.player
-          WHERE m.room_id = ?
-          ORDER BY p.correct DESC, p.created_at ASC LIMIT ?`,
-    args: [roomId, limit],
-  });
-  return res.rows as unknown as LeaderRow[];
-}
-
-/** Create a room only after the owner has a server-graded play for the day. */
-export async function createFriendRoom(
-  roomId: string,
-  day: string,
-  player: string
-): Promise<FriendRoomResult> {
-  const play = await getMyPlay(day, player);
-  if (!play) throw new Error("play required");
-
-  const c = await getReadyClient();
-  await c.batch(
-    [
-      {
-        sql: "INSERT INTO friend_rooms (id, day, owner_player) VALUES (?, ?, ?)",
-        args: [roomId, day, player],
-      },
-      {
-        sql: "INSERT INTO friend_room_members (room_id, player) VALUES (?, ?)",
-        args: [roomId, player],
-      },
-    ],
-    "write"
-  );
-  return { roomId, leaderboard: await getFriendLeaderboard(roomId) };
-}
-
-/** Join a same-day room using the score already recorded by the server. */
-export async function joinFriendRoom(
-  roomId: string,
-  day: string,
-  player: string
-): Promise<FriendRoomResult | null> {
-  const c = await getReadyClient();
-  const room = await c.execute({
-    sql: "SELECT id FROM friend_rooms WHERE id = ? AND day = ?",
-    args: [roomId, day],
-  });
-  if (!room.rows[0] || !(await getMyPlay(day, player))) return null;
-
-  await c.execute({
-    sql: "INSERT INTO friend_room_members (room_id, player) VALUES (?, ?) ON CONFLICT(room_id, player) DO NOTHING",
-    args: [roomId, player],
-  });
-  return { roomId, leaderboard: await getFriendLeaderboard(roomId) };
 }

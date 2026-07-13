@@ -5,17 +5,7 @@ import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "./auth";
-import {
-  createFriendRoom,
-  gradeAndRecord,
-  getLeaderboard,
-  joinFriendRoom,
-  todayKey,
-  type FriendRoomResult,
-  type Source,
-  type GradeResult,
-  type LeaderRow,
-} from "./game";
+import { gradeAndRecord, getLeaderboard, todayKey, type Source, type GradeResult, type LeaderRow } from "./game";
 import { createSubmission, approveSubmission, rejectSubmission } from "./db";
 
 const ANON_COOKIE = "pp_player";
@@ -53,31 +43,6 @@ export async function submitGuessesAction(guesses: Record<number, Source>): Prom
   const leaderboard = await getLeaderboard(day);
   revalidatePath("/play");
   return { ...result, leaderboard };
-}
-
-// ---------- friend challenge rooms ----------
-
-const ROOM_ID = /^[A-Za-z0-9_-]{8}$/;
-
-export async function createFriendChallengeAction(): Promise<FriendRoomResult> {
-  const day = todayKey();
-  const { player } = await resolvePlayer();
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const roomId = crypto.randomBytes(6).toString("base64url");
-    try {
-      return await createFriendRoom(roomId, day, player);
-    } catch (error) {
-      if (error instanceof Error && error.message === "play required") throw error;
-    }
-  }
-  throw new Error("could not create challenge room");
-}
-
-export async function joinFriendChallengeAction(roomId: string): Promise<FriendRoomResult | null> {
-  if (!ROOM_ID.test(roomId)) return null;
-  const { player } = await resolvePlayer();
-  return joinFriendRoom(roomId, todayKey(), player);
 }
 
 // ---------- supply loop: submit a challenge answer (login required) ----------
