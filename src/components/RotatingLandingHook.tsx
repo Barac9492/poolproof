@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { track } from "@vercel/analytics/react";
 
 const HOOKS = [
   { from: "썸남", via: "카톡" },
@@ -21,6 +22,24 @@ export default function RotatingLandingHook() {
   }, []);
 
   const hook = HOOKS[index];
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("poolproof-current-hook", JSON.stringify({ from: hook.from, via: hook.via }));
+      const stored = JSON.parse(sessionStorage.getItem("poolproof-seen-hooks") ?? "[]") as number[];
+      if (!stored.includes(index)) {
+        sessionStorage.setItem("poolproof-seen-hooks", JSON.stringify([...stored, index]));
+        track("landing_hook_impression", {
+          from: hook.from,
+          via: hook.via,
+          hook_index: index,
+        });
+      }
+    } catch {
+      // Analytics attribution should never interrupt the headline rotation.
+    }
+  }, [hook.from, hook.via, index]);
+
   return (
     <h1 className="split-hook" aria-label={`${hook.from}, ${hook.via}. 이거 진짜일까?`}>
       <span className="split-board" aria-hidden="true">

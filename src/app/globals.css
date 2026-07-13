@@ -209,6 +209,11 @@ button { color: inherit; }
 .vote-bars > div span { display: block; height: 100%; background: var(--lime); border-radius: inherit; transition: width .6s ease; }
 .vote-bars p { display: flex; justify-content: space-between; margin: 8px 0 0; color: #9d9d96; font-size: 10px; }
 .vote-bars b { color: white; }
+.share-result { max-width: 630px; margin: 20px auto 0; padding: 16px 18px; border: 1px solid #3b3b36; border-radius: 12px; background: #20201d; text-align: left; }
+.share-result span { display: block; color: var(--lime); font: 800 9px/1 ui-monospace,monospace; letter-spacing: .12em; text-transform: uppercase; }
+.share-result strong { display: block; margin-top: 8px; font-size: 15px; }
+.share-result p { margin: 5px 0 0; color: #aaa9a2; font-size: 11px; }
+.share-result p b { color: white; }
 .reveal-actions { display: flex; justify-content: center; gap: 8px; margin-top: 26px; }
 .primary-action, .secondary-action { min-height: 46px; border-radius: 10px; padding: 0 19px; font-size: 13px; font-weight: 780; cursor: pointer; }
 .primary-action { border: 0; background: var(--lime); color: var(--ink); }

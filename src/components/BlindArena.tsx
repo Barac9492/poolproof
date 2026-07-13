@@ -49,6 +49,10 @@ export default function BlindArena({ battles, sharedBattle = false, hideIntro = 
     return () => window.clearTimeout(timer);
   }, [battles.length, sharedBattle]);
 
+  useEffect(() => {
+    if (sharedBattle) track("shared_battle_opened", { battle_id: battles[0]?.id ?? "unknown" });
+  }, [battles, sharedBattle]);
+
   const battle = battles[index];
   // An inbound shared battle is the acquisition reward itself; never gate it
   // before the recipient gets one complete choose-and-reveal experience.
@@ -57,6 +61,7 @@ export default function BlindArena({ battles, sharedBattle = false, hideIntro = 
   const pctA = total > 0 ? Math.round(((counts?.a ?? battle.seedA) / total) * 100) : 50;
   const selectedModel = choice === "A" ? revealed?.modelA : revealed?.modelB;
   const humanTest = battle.mode === "human_test";
+  const selectedPct = choice === "A" ? pctA : 100 - pctA;
 
   const taste = useMemo(() => {
     const modelCounts = new Map<string, number>();
@@ -119,7 +124,9 @@ export default function BlindArena({ battles, sharedBattle = false, hideIntro = 
     const url = battle.source === "live"
       ? `${window.location.origin}/b/${battle.id}?from=friend`
       : `${window.location.origin}/?battle=${battle.id}&from=friend`;
-    const text = humanTest
+    const text = humanTest && choice && selectedModel
+      ? `나는 ${choice}를 사람 같다고 골랐고 ${selectedPct}%가 같은 선택을 했어. 정체는 ${selectedModel}. 너는 속을까?\n“${battle.prompt}”`
+      : humanTest
       ? `한쪽은 원문, 한쪽은 AI래. 너라면 어느 쪽이 사람 같아?\n“${battle.prompt}”`
       : `AI 이름은 가렸어. 너라면 어느 쪽을 고를래?\n“${battle.prompt}”`;
     try {
@@ -215,6 +222,13 @@ export default function BlindArena({ battles, sharedBattle = false, hideIntro = 
               <div><span style={{ width: `${pctA}%` }} /></div>
               <p><b>A {pctA}%</b><span>{total.toLocaleString("ko-KR")}명 참여</span><b>B {100 - pctA}%</b></p>
             </div>
+            {humanTest && selectedModel && (
+              <div className="share-result">
+                <span>내 결과</span>
+                <strong>{choice}를 고른 {selectedPct}% 중 한 명</strong>
+                <p>정체는 <b>{selectedModel}</b>. 친구는 같은 선택을 할까요?</p>
+              </div>
+            )}
             <div className="reveal-actions">
               {battles.length === 1 ? (
                 <Link className="primary-action" href="/">다른 대결 보기 <span>→</span></Link>

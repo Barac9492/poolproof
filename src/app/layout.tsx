@@ -10,13 +10,13 @@ const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 export const metadata: Metadata = {
   metadataBase: new URL("https://poolproof.dev"),
   title: {
-    default: "Poolproof — 사람과 AI, 몇 개나 구별할까요?",
+    default: "Poolproof — 썸남 카톡도, 업무 이메일도. 이거 진짜일까?",
     template: "%s · Poolproof",
   },
-  description: "출처가 확인된 사람 글과 AI 글을 맞히고, 오늘의 점수를 친구들과 겨뤄보세요.",
+  description: "받은 메시지를 AI가 다시 쓴 문장과 익명으로 비교하세요. 사람들이 더 사람답다고 느끼는 쪽을 고른 뒤에만 원문을 공개합니다.",
   openGraph: {
-    title: "사람과 AI, 몇 개나 구별할까요?",
-    description: "오늘의 사람 vs AI 판별 게임. 점수를 확인하고 친구에게 도전장을 보내세요.",
+    title: "썸남 카톡도, 업무 이메일도. 이거 진짜일까?",
+    description: "한쪽은 원문, 한쪽은 AI. 더 사람이 직접 쓴 것 같은 메시지를 골라보세요.",
     siteName: "Poolproof",
     type: "website",
   },
@@ -44,16 +44,16 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <div className="header-inner">
             <Mark />
             <nav aria-label="주요 메뉴">
-              <Link href="/#play">오늘의 판별</Link>
-              <Link href="/how">왜 믿을 수 있나요?</Link>
-              <Link href="/submit">직접 문제 내기</Link>
+              <Link href="/">AI 냄새 테스트</Link>
+              <Link href="/#sample">직접 골라보기</Link>
+              <Link href="/how">이게 뭐예요?</Link>
             </nav>
-            <Link href="/#play" className="header-login">오늘 게임 시작</Link>
+            <Link href="/#message-input" className="header-login">메시지 테스트</Link>
           </div>
         </header>
         <main>{children}</main>
         <footer className="site-footer">
-          <div><Mark /><p>정답이 있는 사람 vs AI 판별 게임.</p></div>
+          <div><Mark /><p>진심인가, 프롬프트인가. 사람들의 인상으로 비교합니다.</p></div>
           <nav>
             <Link href="/privacy">개인정보처리방침</Link>
             <Link href="/terms">이용약관</Link>

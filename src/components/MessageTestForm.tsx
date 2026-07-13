@@ -17,6 +17,15 @@ const MESSAGE_PREFIX: Record<string, string> = {
   상대방: "상대방이 보낸",
 };
 
+function currentHook() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem("poolproof-current-hook") ?? "{}") as { from?: string; via?: string };
+    return { hook_from: value.from ?? "unknown", hook_via: value.via ?? "unknown" };
+  } catch {
+    return { hook_from: "unknown", hook_via: "unknown" };
+  }
+}
+
 export default function MessageTestForm() {
   const [relationship, setRelationship] = useState("썸남");
   const [message, setMessage] = useState("");
@@ -24,17 +33,19 @@ export default function MessageTestForm() {
   const [wasMasked, setWasMasked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [inputTracked, setInputTracked] = useState(false);
 
   function create() {
     if (message.trim().length < 10) return;
     setError(null);
+    track("message_test_submitted", { relationship, message_length: message.trim().length, ...currentHook() });
     startTransition(async () => {
       const result = await createMessageTestAction(message, relationship);
       if (result.error) return setError(result.error);
       if (result.id) {
         setCreatedId(result.id);
         setWasMasked(Boolean(result.masked));
-        track("message_test_created", { relationship, message_length: message.trim().length });
+        track("message_test_created", { relationship, message_length: message.trim().length, ...currentHook() });
       }
     });
   }
@@ -56,14 +67,29 @@ export default function MessageTestForm() {
     <div className="detector-form">
       <div className="relationship-row" aria-label="메시지를 보낸 사람">
         {RELATIONSHIPS.map((item) => (
-          <button key={item} type="button" className={relationship === item ? "active" : ""} onClick={() => setRelationship(item)}>{item}</button>
+          <button
+            key={item}
+            type="button"
+            className={relationship === item ? "active" : ""}
+            onClick={() => {
+              setRelationship(item);
+              track("message_relationship_selected", { relationship: item });
+            }}
+          >{item}</button>
         ))}
       </div>
       <label htmlFor="message-input">{MESSAGE_PREFIX[relationship]} 메시지를 붙여넣으세요</label>
       <textarea
         id="message-input"
         value={message}
-        onChange={(event) => setMessage(event.target.value.slice(0, 500))}
+        onChange={(event) => {
+          const nextMessage = event.target.value.slice(0, 500);
+          setMessage(nextMessage);
+          if (!inputTracked && nextMessage.trim()) {
+            setInputTracked(true);
+            track("message_input_started", { relationship, ...currentHook() });
+          }
+        }}
         placeholder="예: 아까 내가 말이 좀 심했던 것 같아. 집에 오는 길에 계속 마음에 걸렸어..."
         rows={5}
       />

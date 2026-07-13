@@ -1,61 +1,44 @@
-import DailyArena from "@/components/DailyArena";
+import BlindArena from "@/components/BlindArena";
+import MessageTestForm from "@/components/MessageTestForm";
+import RotatingLandingHook from "@/components/RotatingLandingHook";
 import { messageTests, toPublicBattle } from "@/lib/battles";
-
-function seoulDayKey() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ room?: string }>;
+  searchParams: Promise<{ battle?: string; from?: string }>;
 }) {
-  const { room } = await searchParams;
-  const roomId = room && /^[A-Za-z0-9_-]{8}$/.test(room) ? room : undefined;
+  const { battle, from } = await searchParams;
+  const sharedSample = from === "friend" ? messageTests.find((item) => item.id === battle) : undefined;
+  const visibleBattles = sharedSample ? [sharedSample] : messageTests;
 
   return (
     <>
-      <section className="detector-hero daily-hero">
+      <section className="detector-hero">
         <div className="detector-copy">
-          <div className="detector-badge"><span /> 사람 vs AI · 오늘의 베타 세트</div>
-          <h1>사람과 AI,<br /><em>몇 개나 구별할까요?</em></h1>
-          <p>출처가 확인된 사람 글과 같은 주제로 만든 AI 글을 나란히 보여드립니다. 감으로 고르고, 정답으로 점수를 확인하세요.</p>
-          <div className="hero-actions">
-            <a href="#play">오늘의 판별 시작 <span>→</span></a>
-            <small>로그인 없이 바로 시작</small>
+          <div className="detector-badge"><span /> AI 냄새 테스트 · BETA</div>
+          <RotatingLandingHook />
+          <p>직접 쓴 진심인지, AI에게 부탁한 문장인지. 친구들과 익명으로 골라보세요.</p>
+          <div className="hook-messages" aria-label="테스트할 수 있는 카톡 예시">
+            <span>“ㅇㅇ 이따 전화할게”</span>
+            <span>“오늘 진짜 재밌었어 ㅋㅋ”</span>
+            <span>“아까는 내가 예민했나 봐. 미안해”</span>
           </div>
           <div className="trust-row">
-            <span>정답이 있는 게임</span><span>하루 한 판</span><span>친구 점수 대결</span>
+            <span>확정 탐지 아님</span>
+            <span>개인정보 자동 마스킹</span>
+            <span>투표 후 정체 공개</span>
           </div>
         </div>
-
-        <div className="daily-proof-card" aria-label="결과 공유 예시">
-          <header><span>오늘의 판별</span><b>결과 예시</b></header>
-          <div className="proof-score"><strong>2</strong><span>/3</span></div>
-          <h2>AI 냄새 사냥꾼</h2>
-          <p>🟩🟥🟩</p>
-          <div className="proof-rank"><span>단톡방 순위</span><strong>1위</strong><em>친구 평균 1.6</em></div>
-          <div className="proof-cta">나는 2개. 너는? <span>↗</span></div>
-        </div>
+        <MessageTestForm />
       </section>
 
-      <section className="sample-heading" id="play">
-        <p>{roomId ? "친구가 보낸 도전장" : "오늘의 판별"}</p>
-        <h2>{roomId ? <>같은 문제로<br />점수를 겨뤄보세요.</> : <>사람이 쓴 문장을<br />골라보세요.</>}</h2>
-        <span>{messageTests.length}문제를 모두 풀면 점수와 공유용 결과가 공개됩니다.</span>
+      <section className="sample-heading" id="sample">
+        <p>{sharedSample ? "친구가 보낸 테스트" : "먼저 직접 골라보세요"}</p>
+        <h2>{sharedSample ? <>친구와 같은 쪽을<br />고르게 될까요?</> : <>어느 쪽에서<br />사람 냄새가 나나요?</>}</h2>
+        <span>한쪽은 실제 원문, 다른 쪽은 AI 대안입니다.</span>
       </section>
-      <div className="arena-shell">
-        <DailyArena
-          battles={messageTests.map(toPublicBattle)}
-          dayKey={seoulDayKey()}
-          roomId={roomId}
-        />
-      </div>
+      <BlindArena battles={visibleBattles.map(toPublicBattle)} sharedBattle={Boolean(sharedSample)} hideIntro />
     </>
   );
 }
