@@ -333,6 +333,27 @@ const DDL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)`,
   `CREATE INDEX IF NOT EXISTS idx_submissions_author ON submissions(author)`,
+  // ---- 원샷 챌린지: one prompt, one generation, one run. The prompt is the
+  // submission; the generated code and its holdout verdict are the record. ----
+  `CREATE TABLE IF NOT EXISTS oneshot_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    player TEXT NOT NULL,
+    display TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    model TEXT NOT NULL,
+    code TEXT NOT NULL,
+    public_pass INTEGER NOT NULL,
+    public_total INTEGER NOT NULL,
+    holdout_pass INTEGER NOT NULL,
+    holdout_total INTEGER NOT NULL,
+    green INTEGER NOT NULL,
+    died_at INTEGER,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_oneshot_slug ON oneshot_runs(slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_oneshot_player ON oneshot_runs(player)`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -1368,4 +1389,94 @@ export async function approveSubmission(id: number): Promise<boolean> {
 
 export async function rejectSubmission(id: number): Promise<void> {
   await run("UPDATE submissions SET status = 'rejected' WHERE id = ? AND status = 'pending'", [id]);
+}
+
+// ---------- 원샷 챌린지 ----------
+
+export interface OneShotRun {
+  id: number;
+  slug: string;
+  player: string;
+  display: string;
+  prompt: string;
+  model: string;
+  code: string;
+  public_pass: number;
+  public_total: number;
+  holdout_pass: number;
+  holdout_total: number;
+  green: number;
+  died_at: number | null;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface OneShotBoardRow {
+  slug: string;
+  model: string;
+  attempts: number;
+  greens: number;
+}
+
+export async function recordOneShotRun(input: {
+  slug: string;
+  player: string;
+  display: string;
+  prompt: string;
+  model: string;
+  code: string;
+  publicPass: number;
+  publicTotal: number;
+  holdoutPass: number;
+  holdoutTotal: number;
+  green: boolean;
+  diedAt: number | null;
+  detail: string | null;
+}): Promise<number> {
+  const c = await getReadyClient();
+  const res = await c.execute({
+    sql: `INSERT INTO oneshot_runs
+            (slug, player, display, prompt, model, code,
+             public_pass, public_total, holdout_pass, holdout_total, green, died_at, detail)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      input.slug, input.player, input.display, input.prompt, input.model, input.code,
+      input.publicPass, input.publicTotal, input.holdoutPass, input.holdoutTotal,
+      input.green ? 1 : 0, input.diedAt, input.detail,
+    ],
+  });
+  return Number(res.lastInsertRowid);
+}
+
+/** Per-(task, model) one-shot success rates — the board nobody else can publish. */
+export async function getOneShotBoard(): Promise<OneShotBoardRow[]> {
+  const c = await getReadyClient();
+  const res = await c.execute(
+    `SELECT slug, model, COUNT(*) AS attempts, SUM(green) AS greens
+     FROM oneshot_runs GROUP BY slug, model ORDER BY slug, attempts DESC`
+  );
+  return res.rows as unknown as OneShotBoardRow[];
+}
+
+/** Recent attempts, newest first — the public record (both greens and deaths). */
+export async function getRecentOneShotRuns(limit = 20): Promise<OneShotRun[]> {
+  const c = await getReadyClient();
+  const res = await c.execute({
+    sql: `SELECT id, slug, player, display, prompt, model, code,
+                 public_pass, public_total, holdout_pass, holdout_total, green, died_at, detail, created_at
+          FROM oneshot_runs ORDER BY id DESC LIMIT ?`,
+    args: [limit],
+  });
+  return res.rows as unknown as OneShotRun[];
+}
+
+/** Daily attempt gate: 1 prompt per player per task per UTC day (league grammar + cost cap). */
+export async function countOneShotToday(slug: string, player: string): Promise<number> {
+  const c = await getReadyClient();
+  const res = await c.execute({
+    sql: `SELECT COUNT(*) AS n FROM oneshot_runs
+          WHERE slug = ? AND player = ? AND date(created_at) = date('now')`,
+    args: [slug, player],
+  });
+  return Number((res.rows[0] as unknown as { n: number }).n);
 }
