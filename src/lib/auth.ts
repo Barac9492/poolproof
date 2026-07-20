@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
-import { getMeta, setMeta, getUserById } from "./db";
+import { getOrCreateMeta, getUserById } from "./db";
 
 export interface User {
   id: number;
@@ -17,14 +17,14 @@ let _secret: Buffer | null = null;
 
 async function getSecret(): Promise<Buffer> {
   if (_secret) return _secret;
-  const stored = await getMeta("session_secret");
-  if (stored) {
-    _secret = Buffer.from(stored, "hex");
-  } else {
-    _secret = crypto.randomBytes(32);
-    await setMeta("session_secret", _secret.toString("hex"));
+  const candidate = crypto.randomBytes(32).toString("hex");
+  const stored = await getOrCreateMeta("session_secret", candidate);
+  const decoded = Buffer.from(stored, "hex");
+  if (!/^[0-9a-f]{64}$/i.test(stored) || decoded.length !== 32) {
+    throw new Error("invalid persisted session secret");
   }
-  return _secret;
+  _secret = decoded;
+  return decoded;
 }
 
 function sign(payload: string, secret: Buffer): string {
@@ -63,10 +63,14 @@ export function isValidHandle(handle: string): boolean {
   return HANDLE_RE.test(handle);
 }
 
-/** Moderation gate for the submission review queue. Set ADMIN_HANDLE to enable. */
-export function isAdmin(handle: string | undefined | null): boolean {
-  const admin = process.env.ADMIN_HANDLE?.trim();
-  return !!admin && !!handle && handle.toLowerCase() === admin.toLowerCase();
+/** Moderation gate. Prefer immutable ADMIN_USER_ID; ADMIN_HANDLE remains a
+ * reserved legacy fallback so no new account can claim it after deployment. */
+export function isAdmin(user: Pick<User, "id" | "handle"> | undefined | null): boolean {
+  if (!user) return false;
+  const configuredId = Number(process.env.ADMIN_USER_ID);
+  if (Number.isSafeInteger(configuredId) && configuredId > 0) return user.id === configuredId;
+  const legacyHandle = process.env.ADMIN_HANDLE?.trim();
+  return !!legacyHandle && user.handle.toLowerCase() === legacyHandle.toLowerCase();
 }
 
 // ---------- sessions (stateless HMAC token: uid.exp.sig) ----------

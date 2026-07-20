@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import { readPublicSuite, runSuiteOnFile } from "./runner";
-import { recordOneShotRun, type OneShotRun } from "./db";
+import { markOneShotSpent, recordOneShotRun, type OneShotRun } from "./db";
+import { ONESHOT_GREEN_REWARD } from "./economy";
 
 // 원샷 챌린지 core: one prompt, one generation, one run, holdout decides.
 // Strategy source of truth: docs/oneshot-strategy.md §2.
@@ -18,7 +19,7 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MAX_PROMPT_CHARS = 500;
 
 /** Credits paid out for a green one-shot (signed-in players only). */
-export { ONESHOT_GREEN_REWARD } from "./economy";
+export { ONESHOT_GREEN_REWARD };
 
 export interface OneShotTask {
   slug: string;
@@ -58,6 +59,7 @@ export function liveModelEnabled(): boolean {
 export interface OneShotOutcome {
   run: OneShotRun;
   cells: { kind: "public" | "holdout"; pass: boolean; name: string }[];
+  creditsAwarded: number;
 }
 
 /** Strip a single ```-fence wrapper if the model added one despite instructions. */
@@ -88,7 +90,7 @@ async function generateCode(task: OneShotTask, userPrompt: string): Promise<stri
         "규칙:\n" +
         "- 아래 공개 테스트 파일이 요구하는 API를 export하는 단일 ES module(.mjs) 하나만 출력하라.\n" +
         "- 출력은 코드만. 설명·마크다운 펜스·주석 머리말 금지.\n" +
-        "- import는 node 내장 모듈만 허용. 파일시스템·네트워크·child_process 사용 금지.\n" +
+        "- import는 허용되지 않는다. 파일시스템·네트워크·process 등 호스트 기능은 사용할 수 없다.\n" +
         "- 공개 테스트 외에 숨은 테스트(holdout)가 있다. 공개 케이스 하드코딩으로는 통과할 수 없다.",
       messages: [
         {
@@ -116,6 +118,7 @@ async function generateCode(task: OneShotTask, userPrompt: string): Promise<stri
  * same convention as ai.ts).
  */
 export async function executeOneShot(
+  attemptId: string,
   slug: string,
   userPrompt: string,
   player: string,
@@ -126,6 +129,10 @@ export async function executeOneShot(
   const prompt = userPrompt.trim().slice(0, MAX_PROMPT_CHARS);
   if (prompt.length < 4) throw new Error("prompt-too-short");
 
+  // From this point the daily/global model budget stays consumed even if the
+  // upstream request or later harness fails. This prevents paid-call retries by
+  // forcing a post-dispatch error.
+  await markOneShotSpent(attemptId, slug, player);
   const code = await generateCode(task, prompt);
 
   // Scratch file in the OS tmpdir — works both locally and on serverless (/tmp).
@@ -143,7 +150,7 @@ export async function executeOneShot(
   const hold = results.filter((r) => r.kind === "holdout");
   const publicPass = pub.filter((r) => r.status === "pass").length;
   const holdoutPass = hold.filter((r) => r.status === "pass").length;
-  const green = results.length > 0 && results.every((r) => r.status === "pass");
+  const green = pub.length > 0 && hold.length > 0 && results.every((r) => r.status === "pass");
   const firstDead = hold.findIndex((r) => r.status === "fail");
   const firstFail = results.find((r) => r.status === "fail");
   const safeFailureDetail = firstFail
@@ -152,7 +159,8 @@ export async function executeOneShot(
       : `${firstFail.name}${firstFail.detail ? ` — ${firstFail.detail}` : ""}`.slice(0, 300)
     : null;
 
-  const id = await recordOneShotRun({
+  const recorded = await recordOneShotRun({
+    attemptId,
     slug,
     player,
     display,
@@ -166,11 +174,13 @@ export async function executeOneShot(
     green,
     diedAt: firstDead === -1 ? null : firstDead + 1,
     detail: safeFailureDetail,
+    rewardHandle: player,
+    rewardCredits: ONESHOT_GREEN_REWARD,
   });
 
   return {
     run: {
-      id,
+      id: recorded.id,
       slug,
       player,
       display,
@@ -192,5 +202,6 @@ export async function executeOneShot(
       pass: r.status === "pass",
       name: r.kind === "holdout" ? "(비공개)" : r.name,
     })),
+    creditsAwarded: recorded.creditsAwarded,
   };
 }
