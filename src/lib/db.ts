@@ -1,4 +1,4 @@
-import { createClient, type Client, type InStatement } from "@libsql/client";
+import { createClient, type Client, type InStatement, type Transaction } from "@libsql/client";
 import path from "path";
 import { generateAiCounterpart } from "./ai";
 
@@ -186,6 +186,26 @@ async function batch(statements: InStatement[]): Promise<void> {
   await (await db()).batch(statements, "write");
 }
 
+async function withWriteTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+  const tx = await (await db()).transaction("write");
+  try {
+    const result = await work(tx);
+    await tx.commit();
+    return result;
+  } catch (error) {
+    try {
+      await tx.rollback();
+    } catch {
+      // Preserve the original failure if rollback itself cannot complete.
+    }
+    throw error;
+  } finally {
+    tx.close();
+  }
+}
+
+class MutationRejected extends Error {}
+
 // ---------- migration ----------
 
 const DDL = [
@@ -259,6 +279,7 @@ const DDL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ledger_project ON ledger(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_pledges_project ON pledges(project_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_slots_one_active ON slots(project_id) WHERE status = 'active'`,
   `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     handle TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -354,6 +375,19 @@ const DDL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_oneshot_slug ON oneshot_runs(slug)`,
   `CREATE INDEX IF NOT EXISTS idx_oneshot_player ON oneshot_runs(player)`,
+  `CREATE TABLE IF NOT EXISTS oneshot_attempts (
+    day TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    player TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (day, slug, player)
+  )`,
+  `CREATE TABLE IF NOT EXISTS polar_fulfillments (
+    order_id TEXT PRIMARY KEY,
+    handle TEXT NOT NULL,
+    credits INTEGER NOT NULL,
+    fulfilled_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 async function safeAlter(c: Client, sql: string): Promise<void> {
@@ -377,13 +411,19 @@ async function migrateAndSeed(c: Client): Promise<void> {
   await safeAlter(c, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github ON users(github_id) WHERE github_id IS NOT NULL");
   await safeAlter(c, "ALTER TABLE projects ADD COLUMN deadline_at TEXT");
   await safeAlter(c, "ALTER TABLE slots ADD COLUMN expires_at TEXT");
-  // arena frame is a first-class mode, not a slug hack (concierge test #1 graduates)
   await safeAlter(c, "ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'escrow'");
-  const migrated = await c.execute("SELECT value FROM meta WHERE key = 'migr_arena_mode'");
-  if (migrated.rows.length === 0) {
-    await c.execute("UPDATE projects SET mode = 'arena' WHERE slug = 'wordle-solver'");
-    await c.execute("INSERT INTO meta (key, value) VALUES ('migr_arena_mode', '1')");
-  }
+  // Retire the one-off ticketed arena framing. Every live project now follows
+  // the same credits-bounty contract shown on the homepage.
+  await c.execute("UPDATE projects SET mode = 'escrow' WHERE slug = 'wordle-solver'");
+  // The active answer set is private and rotated; never advertise retired cases
+  // as if they were the current holdout suite.
+  await c.execute({
+    sql: `UPDATE projects SET summary = ?, source_label = ? WHERE slug = 'wordle-solver'`,
+    args: [
+      "Can an AI build a Wordle solver that survives a real unseen test run? nextGuess(history, words) must solve hidden words in ≤6 using only g/y/b feedback. Public tests define the contract; the private suite rotates across trap families and repeated-letter cases, so memorizing fixed answers does not prove a solver.",
+      "Rotating private answer families: public tests show the contract, production holdouts stay outside the repository",
+    ],
+  });
   await c.execute(
     "UPDATE projects SET deadline_at = datetime(created_at, '+30 days') WHERE deadline_at IS NULL AND status != 'green'"
   );
@@ -397,6 +437,11 @@ async function migrateAndSeed(c: Client): Promise<void> {
   // Anti-AI-submission attestation: the writer swears the answer is their own,
   // AI-free. A false attestation is the one thing that poisons the answer key.
   await safeAlter(c, "ALTER TABLE submissions ADD COLUMN no_ai INTEGER NOT NULL DEFAULT 0");
+  // Preserve today's completed attempts when the atomic claim table is first deployed.
+  await c.execute(
+    `INSERT OR IGNORE INTO oneshot_attempts (day, slug, player, created_at)
+     SELECT date(created_at), slug, player, created_at FROM oneshot_runs`
+  );
 
   // Game pool: idempotent top-up (ON CONFLICT(body)), so it's inherently
   // race-safe — several serverless instances running it concurrently on a
@@ -972,10 +1017,34 @@ export async function getBalance(handle: string): Promise<number> {
   return Number(row?.credits ?? 0);
 }
 
-/** Credit a user's balance (Stripe fulfillment, payouts, refunds). No-op for non-user handles. */
+/** Credit a user's balance for internal rewards, payouts, and refunds. */
 export async function grantCredits(handle: string, amount: number): Promise<void> {
   if (amount <= 0) return;
   await run("UPDATE users SET credits = credits + ? WHERE handle = ?", [Math.floor(amount), handle]);
+}
+
+/** Fulfill one paid Polar order exactly once, even when its webhook is retried. */
+export async function fulfillPolarCredits(orderId: string, handle: string, amount: number): Promise<boolean> {
+  const credits = Math.floor(amount);
+  if (!orderId || !handle || credits <= 0) throw new Error("invalid Polar fulfillment");
+
+  return withWriteTransaction(async (tx) => {
+    const claimed = await tx.execute({
+      sql: `INSERT INTO polar_fulfillments (order_id, handle, credits)
+            VALUES (?, ?, ?) ON CONFLICT(order_id) DO NOTHING`,
+      args: [orderId, handle, credits],
+    });
+    if (Number(claimed.rowsAffected ?? 0) === 0) return false;
+
+    const credited = await tx.execute({
+      sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+      args: [credits, handle],
+    });
+    if (Number(credited.rowsAffected ?? 0) !== 1) {
+      throw new Error("Polar fulfillment user not found");
+    }
+    return true;
+  });
 }
 
 export async function getUserById(id: number): Promise<UserRow | undefined> {
@@ -985,49 +1054,106 @@ export async function getUserById(id: number): Promise<UserRow | undefined> {
 // ---------- mutations ----------
 
 export async function pledge(projectId: number, backer: string, amount: number): Promise<void> {
-  const p = await getProject(projectId);
-  if (!p || p.status !== "funding" || amount <= 0) return;
-  const balance = await getBalance(backer);
-  const capped = Math.min(amount, p.goal_credits - p.escrowed_credits, balance);
-  if (capped <= 0) return;
-  const stmts: InStatement[] = [
-    { sql: "UPDATE users SET credits = credits - ? WHERE handle = ?", args: [capped, backer] },
-    { sql: "UPDATE projects SET escrowed_credits = escrowed_credits + ? WHERE id = ?", args: [capped, projectId] },
-    { sql: "INSERT INTO pledges (project_id, backer, amount) VALUES (?, ?, ?)", args: [projectId, backer, capped] },
-    {
-      sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'pledge', ?, ?, ?)",
-      args: [projectId, `${backer} escrowed ${capped.toLocaleString()} credits — releases only on green`, capped, backer],
-    },
-  ];
-  if (p.escrowed_credits + capped >= p.goal_credits) {
-    stmts.push(
-      { sql: "UPDATE projects SET status = 'open' WHERE id = ?", args: [projectId] },
-      {
-        sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
-        args: [projectId, `Pool full (${p.goal_credits.toLocaleString()} cr escrowed). Build slot open to staked builders.`],
+  const requested = Math.floor(amount);
+  if (requested <= 0) return;
+
+  try {
+    await withWriteTransaction(async (tx) => {
+      const projectResult = await tx.execute({
+        sql: "SELECT goal_credits, escrowed_credits, status FROM projects WHERE id = ?",
+        args: [projectId],
+      });
+      const project = projectResult.rows[0] as unknown as {
+        goal_credits: number;
+        escrowed_credits: number;
+        status: string;
+      } | undefined;
+      if (!project || project.status !== "funding") throw new MutationRejected();
+
+      const balanceResult = await tx.execute({
+        sql: "SELECT credits FROM users WHERE handle = ?",
+        args: [backer],
+      });
+      const balance = Number((balanceResult.rows[0] as unknown as { credits: number } | undefined)?.credits ?? 0);
+      const capped = Math.min(requested, Number(project.goal_credits) - Number(project.escrowed_credits), balance);
+      if (capped <= 0) throw new MutationRejected();
+
+      const escrowed = await tx.execute({
+        sql: `UPDATE projects SET escrowed_credits = escrowed_credits + ?
+              WHERE id = ? AND status = 'funding' AND escrowed_credits + ? <= goal_credits`,
+        args: [capped, projectId, capped],
+      });
+      if (Number(escrowed.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+      const debited = await tx.execute({
+        sql: "UPDATE users SET credits = credits - ? WHERE handle = ? AND credits >= ?",
+        args: [capped, backer, capped],
+      });
+      if (Number(debited.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+      await tx.execute({
+        sql: "INSERT INTO pledges (project_id, backer, amount) VALUES (?, ?, ?)",
+        args: [projectId, backer, capped],
+      });
+      await tx.execute({
+        sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'pledge', ?, ?, ?)",
+        args: [projectId, `${backer} escrowed ${capped.toLocaleString()} credits — releases only on green`, capped, backer],
+      });
+
+      if (Number(project.escrowed_credits) + capped >= Number(project.goal_credits)) {
+        await tx.execute({
+          sql: "UPDATE projects SET status = 'open' WHERE id = ? AND status = 'funding' AND escrowed_credits >= goal_credits",
+          args: [projectId],
+        });
+        await tx.execute({
+          sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
+          args: [projectId, `Pool full (${Number(project.goal_credits).toLocaleString()} cr escrowed). Build slot open to staked builders.`],
+        });
       }
-    );
+    });
+  } catch (error) {
+    if (error instanceof MutationRejected) return;
+    throw error;
   }
-  await batch(stmts);
 }
 
 export async function claimSlot(projectId: number, builder: string, stake: number): Promise<void> {
-  const p = await getProject(projectId);
-  if (!p || p.status !== "open") return;
-  if (await getActiveSlot(projectId)) return;
-  if ((await getBalance(builder)) < stake) return;
-  await batch([
-    { sql: "UPDATE users SET credits = credits - ? WHERE handle = ?", args: [stake, builder] },
-    {
-      sql: "INSERT INTO slots (project_id, builder, stake, expires_at) VALUES (?, ?, ?, datetime('now', '+7 days'))",
-      args: [projectId, builder, stake],
-    },
-    { sql: "UPDATE projects SET status = 'building' WHERE id = ?", args: [projectId] },
-    {
-      sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'stake', ?, ?, ?)",
-      args: [projectId, `${builder} staked ${stake.toLocaleString()} credits for a 7-day exclusive build slot`, stake, builder],
-    },
-  ]);
+  const requestedStake = Math.floor(stake);
+  if (requestedStake <= 0) return;
+
+  try {
+    await withWriteTransaction(async (tx) => {
+      const active = await tx.execute({
+        sql: "SELECT 1 AS x FROM slots WHERE project_id = ? AND status = 'active' LIMIT 1",
+        args: [projectId],
+      });
+      if (active.rows.length > 0) throw new MutationRejected();
+
+      const claimed = await tx.execute({
+        sql: "UPDATE projects SET status = 'building' WHERE id = ? AND status = 'open'",
+        args: [projectId],
+      });
+      if (Number(claimed.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+      const debited = await tx.execute({
+        sql: "UPDATE users SET credits = credits - ? WHERE handle = ? AND credits >= ?",
+        args: [requestedStake, builder, requestedStake],
+      });
+      if (Number(debited.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+      await tx.execute({
+        sql: "INSERT INTO slots (project_id, builder, stake, expires_at) VALUES (?, ?, ?, datetime('now', '+7 days'))",
+        args: [projectId, builder, requestedStake],
+      });
+      await tx.execute({
+        sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'stake', ?, ?, ?)",
+        args: [projectId, `${builder} staked ${requestedStake.toLocaleString()} credits for a 7-day exclusive build slot`, requestedStake, builder],
+      });
+    });
+  } catch (error) {
+    if (error instanceof MutationRejected) return;
+    throw error;
+  }
 }
 
 export async function setVote(projectId: number, handle: string, dir: 1 | -1 | 0): Promise<void> {
@@ -1063,43 +1189,75 @@ export interface HarnessResult {
 
 /** Record a completed harness execution and, on green, release the escrow atomically. */
 export async function recordRun(projectId: number, submission: string, results: HarnessResult[]): Promise<void> {
-  const p = await getProject(projectId);
-  if (!p) throw new Error("no such project");
-  const slot = await getActiveSlot(projectId);
-  if (!slot) throw new Error("no active build slot");
-
   const passed = results.filter((r) => r.status === "pass").length;
   const failed = results.length - passed;
   const green = failed === 0 && results.length > 0;
 
-  const runId = await run(
-    "INSERT INTO verification_runs (project_id, slot_id, submission, status, passed, failed) VALUES (?, ?, ?, ?, ?, ?)",
-    [projectId, slot.id, submission, green ? "green" : "red", passed, failed]
-  );
+  await withWriteTransaction(async (tx) => {
+    const projectResult = await tx.execute({
+      sql: "SELECT * FROM projects WHERE id = ?",
+      args: [projectId],
+    });
+    const p = projectResult.rows[0] as unknown as Project | undefined;
+    if (!p) throw new Error("no such project");
 
-  const stmts: InStatement[] = results.map((r) => ({
-    sql: "INSERT INTO test_results (run_id, name, kind, status, detail) VALUES (?, ?, ?, ?, ?)",
-    args: [runId, r.name, r.kind, r.status, r.detail ?? null],
-  }));
-  stmts.push({
-    sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'run', ?, 0, 'ci-runner')",
-    args: [projectId, `Verification run #${runId} on ${submission}: ${passed}/${results.length} tests passed → ${green ? "GREEN" : "RED"}`],
-  });
+    const slotResult = await tx.execute({
+      sql: "SELECT * FROM slots WHERE project_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+      args: [projectId],
+    });
+    const slot = slotResult.rows[0] as unknown as Slot | undefined;
+    if (!slot) throw new Error("no active build slot");
 
-  if (green) {
-    const pool = p.goal_credits;
+    const insertedRun = await tx.execute({
+      sql: "INSERT INTO verification_runs (project_id, slot_id, submission, status, passed, failed) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [projectId, slot.id, submission, green ? "green" : "red", passed, failed],
+    });
+    const runId = Number(insertedRun.lastInsertRowid);
+
+    for (const result of results) {
+      await tx.execute({
+        sql: "INSERT INTO test_results (run_id, name, kind, status, detail) VALUES (?, ?, ?, ?, ?)",
+        args: [runId, result.name, result.kind, result.status, result.detail ?? null],
+      });
+    }
+    await tx.execute({
+      sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'run', ?, 0, 'ci-runner')",
+      args: [projectId, `Verification run #${runId} on ${submission}: ${passed}/${results.length} tests passed → ${green ? "GREEN" : "RED"}`],
+    });
+
+    if (!green) return;
+
+    // Only one concurrent green run may win the project state transition and payout.
+    const wonPayout = await tx.execute({
+      sql: "UPDATE projects SET status = 'green' WHERE id = ? AND status = 'building'",
+      args: [projectId],
+    });
+    if (Number(wonPayout.rowsAffected ?? 0) !== 1) return;
+
+    const pool = Number(p.goal_credits);
     const builderCut = Math.floor(pool * SPLIT.builder);
     const annuityCut = Math.floor(pool * SPLIT.annuity);
     const specCut = Math.floor(pool * SPLIT.spec_author);
-    const platformCut = pool - builderCut - annuityCut - specCut; // remainder → no reconciliation gaps
+    const platformCut = pool - builderCut - annuityCut - specCut;
 
-    stmts.push(
-      { sql: "UPDATE pledges SET status = 'paid_out' WHERE project_id = ? AND status = 'escrowed'", args: [projectId] },
-      { sql: "UPDATE slots SET status = 'succeeded' WHERE id = ?", args: [slot.id] },
-      { sql: "UPDATE projects SET status = 'green' WHERE id = ?", args: [projectId] },
-      // balance credits — no-ops for non-user handles, real deposits for real accounts
-      { sql: "UPDATE users SET credits = credits + ? WHERE handle = ?", args: [builderCut + slot.stake, slot.builder] },
-      { sql: "UPDATE users SET credits = credits + ? WHERE handle = ?", args: [specCut, p.spec_author] },
+    await tx.execute({
+      sql: "UPDATE pledges SET status = 'paid_out' WHERE project_id = ? AND status = 'escrowed'",
+      args: [projectId],
+    });
+    await tx.execute({
+      sql: "UPDATE slots SET status = 'succeeded' WHERE id = ? AND status = 'active'",
+      args: [slot.id],
+    });
+    await tx.execute({
+      sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+      args: [builderCut + slot.stake, slot.builder],
+    });
+    await tx.execute({
+      sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+      args: [specCut, p.spec_author],
+    });
+
+    const ledgerRows: InStatement[] = [
       {
         sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', 'ALL TESTS GREEN — escrow released', 0, 'system')",
         args: [projectId],
@@ -1119,11 +1277,10 @@ export async function recordRun(projectId: number, submission: string, results: 
       {
         sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'platform_fee', ?, ?, 'poolproof')",
         args: [projectId, `Platform fee (${Math.round(SPLIT.platform * 100)}%)`, -platformCut],
-      }
-    );
-  }
-
-  await batch(stmts);
+      },
+    ];
+    await tx.batch(ledgerRows);
+  });
 }
 
 // ---------- expiry (cron) ----------
@@ -1135,26 +1292,44 @@ export async function expireSlots(): Promise<number> {
      JOIN projects ON projects.id = slots.project_id
      WHERE slots.status = 'active' AND slots.expires_at IS NOT NULL AND slots.expires_at < datetime('now')`
   );
+  let processed = 0;
+
   for (const s of expired) {
     const returned = Math.floor(s.stake / 2);
     const burned = s.stake - returned;
-    const stmts: InStatement[] = [
-      { sql: "UPDATE slots SET status = 'failed' WHERE id = ?", args: [s.id] },
-      { sql: "UPDATE users SET credits = credits + ? WHERE handle = ?", args: [returned, s.builder] },
-      {
-        sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
-        args: [
-          s.project_id,
-          `Slot expired without green: ${s.builder} forfeits ${burned.toLocaleString()} cr (half of stake), ${returned.toLocaleString()} cr returned. Slot reopens.`,
-        ],
-      },
-    ];
-    if (s.pstatus === "building") {
-      stmts.push({ sql: "UPDATE projects SET status = 'open' WHERE id = ?", args: [s.project_id] });
+    try {
+      await withWriteTransaction(async (tx) => {
+        const claimed = await tx.execute({
+          sql: `UPDATE slots SET status = 'failed'
+                WHERE id = ? AND status = 'active'
+                  AND expires_at IS NOT NULL AND expires_at < datetime('now')`,
+          args: [s.id],
+        });
+        if (Number(claimed.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+        await tx.execute({
+          sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+          args: [returned, s.builder],
+        });
+        await tx.execute({
+          sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
+          args: [
+            s.project_id,
+            `Slot expired without green: ${s.builder} forfeits ${burned.toLocaleString()} cr (half of stake), ${returned.toLocaleString()} cr returned. Slot reopens.`,
+          ],
+        });
+        await tx.execute({
+          sql: "UPDATE projects SET status = 'open' WHERE id = ? AND status = 'building'",
+          args: [s.project_id],
+        });
+      });
+      processed += 1;
+    } catch (error) {
+      if (error instanceof MutationRejected) continue;
+      throw error;
     }
-    await batch(stmts);
   }
-  return expired.length;
+  return processed;
 }
 
 /** Refund projects past their deadline without a green run — every escrowed credit goes back. */
@@ -1164,43 +1339,75 @@ export async function refundExpiredProjects(): Promise<number> {
      WHERE status IN ('funding','open','building')
        AND deadline_at IS NOT NULL AND deadline_at < datetime('now')`
   );
+  let processed = 0;
+
   for (const p of expired) {
-    const pledges = await all<Pledge>(
-      "SELECT * FROM pledges WHERE project_id = ? AND status = 'escrowed'",
-      [p.id]
-    );
-    const stmts: InStatement[] = [
-      { sql: "UPDATE projects SET status = 'refunded' WHERE id = ?", args: [p.id] },
-      { sql: "UPDATE pledges SET status = 'refunded' WHERE project_id = ? AND status = 'escrowed'", args: [p.id] },
-      {
-        sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', 'Deadline reached without green — escrow refunded in full', 0, 'system')",
-        args: [p.id],
-      },
-    ];
-    for (const pl of pledges) {
-      stmts.push(
-        { sql: "UPDATE users SET credits = credits + ? WHERE handle = ?", args: [pl.amount, pl.backer] },
-        {
-          sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'refund', ?, ?, ?)",
-          args: [p.id, `Refund of ${pl.amount.toLocaleString()} cr to ${pl.backer}`, pl.amount, pl.backer],
+    try {
+      await withWriteTransaction(async (tx) => {
+        const claimed = await tx.execute({
+          sql: `UPDATE projects SET status = 'refunding'
+                WHERE id = ? AND status IN ('funding','open','building')
+                  AND deadline_at IS NOT NULL AND deadline_at < datetime('now')`,
+          args: [p.id],
+        });
+        if (Number(claimed.rowsAffected ?? 0) !== 1) throw new MutationRejected();
+
+        const pledgeResult = await tx.execute({
+          sql: "SELECT * FROM pledges WHERE project_id = ? AND status = 'escrowed'",
+          args: [p.id],
+        });
+        const pledges = pledgeResult.rows as unknown as Pledge[];
+        for (const pl of pledges) {
+          await tx.execute({
+            sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+            args: [pl.amount, pl.backer],
+          });
+          await tx.execute({
+            sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'refund', ?, ?, ?)",
+            args: [p.id, `Refund of ${pl.amount.toLocaleString()} cr to ${pl.backer}`, pl.amount, pl.backer],
+          });
         }
-      );
-    }
-    // an active slot is not the builder's fault here — full stake back
-    const slot = await getActiveSlot(p.id);
-    if (slot) {
-      stmts.push(
-        { sql: "UPDATE slots SET status = 'failed' WHERE id = ?", args: [slot.id] },
-        { sql: "UPDATE users SET credits = credits + ? WHERE handle = ?", args: [slot.stake, slot.builder] },
-        {
-          sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
-          args: [p.id, `Active slot closed by project deadline — full stake returned to ${slot.builder}.`],
+        await tx.execute({
+          sql: "UPDATE pledges SET status = 'refunded' WHERE project_id = ? AND status = 'escrowed'",
+          args: [p.id],
+        });
+
+        const slotResult = await tx.execute({
+          sql: "SELECT * FROM slots WHERE project_id = ? AND status = 'active' LIMIT 1",
+          args: [p.id],
+        });
+        const slot = slotResult.rows[0] as unknown as Slot | undefined;
+        if (slot) {
+          await tx.execute({
+            sql: "UPDATE slots SET status = 'failed' WHERE id = ? AND status = 'active'",
+            args: [slot.id],
+          });
+          await tx.execute({
+            sql: "UPDATE users SET credits = credits + ? WHERE handle = ?",
+            args: [slot.stake, slot.builder],
+          });
+          await tx.execute({
+            sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', ?, 0, 'system')",
+            args: [p.id, `Active slot closed by project deadline — full stake returned to ${slot.builder}.`],
+          });
         }
-      );
+
+        await tx.execute({
+          sql: "INSERT INTO ledger (project_id, type, description, amount, actor) VALUES (?, 'status', 'Deadline reached without green — escrow refunded in full', 0, 'system')",
+          args: [p.id],
+        });
+        await tx.execute({
+          sql: "UPDATE projects SET status = 'refunded' WHERE id = ? AND status = 'refunding'",
+          args: [p.id],
+        });
+      });
+      processed += 1;
+    } catch (error) {
+      if (error instanceof MutationRejected) continue;
+      throw error;
     }
-    await batch(stmts);
   }
-  return expired.length;
+  return processed;
 }
 
 export async function createSpec(input: {
@@ -1470,7 +1677,27 @@ export async function getRecentOneShotRuns(limit = 20): Promise<OneShotRun[]> {
   return res.rows as unknown as OneShotRun[];
 }
 
-/** Daily attempt gate: 1 prompt per player per task per UTC day (league grammar + cost cap). */
+/** Atomically claim the one allowed prompt per player, task, and UTC day. */
+export async function claimOneShotToday(slug: string, player: string): Promise<boolean> {
+  const c = await getReadyClient();
+  const res = await c.execute({
+    sql: `INSERT INTO oneshot_attempts (day, slug, player)
+          VALUES (date('now'), ?, ?) ON CONFLICT(day, slug, player) DO NOTHING`,
+    args: [slug, player],
+  });
+  return Number(res.rowsAffected ?? 0) === 1;
+}
+
+/** Release a claim only when execution failed before a run was recorded. */
+export async function releaseOneShotClaim(slug: string, player: string): Promise<void> {
+  const c = await getReadyClient();
+  await c.execute({
+    sql: "DELETE FROM oneshot_attempts WHERE day = date('now') AND slug = ? AND player = ?",
+    args: [slug, player],
+  });
+}
+
+/** Daily attempt count for display and diagnostics. */
 export async function countOneShotToday(slug: string, player: string): Promise<number> {
   const c = await getReadyClient();
   const res = await c.execute({
