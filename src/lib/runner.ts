@@ -59,17 +59,35 @@ export async function runVerification(
   if (!allowed.includes(submissionFile)) {
     throw new Error(`unknown submission: ${submissionFile}`);
   }
-  const specDir = path.join(SPECS_ROOT, slug);
   const submissionPath = path.join(SUBMISSIONS_ROOT, slug, submissionFile);
+  const results = await execHarness(slug, submissionPath, [SUBMISSIONS_ROOT]);
+  await recordRun(projectId, submissionFile, results);
+}
 
-  let results: HarnessResult[];
+/**
+ * Run a spec's suite against an arbitrary module file (one-shot mode: code that
+ * was just generated from a prompt, written to a scratch path). Same hardened
+ * child process as runVerification; only the extra read allowance differs.
+ * Returns results instead of recording — the caller owns the one-shot ledger.
+ */
+export async function runSuiteOnFile(slug: string, filePath: string): Promise<HarnessResult[]> {
+  if (!specExists(slug)) throw new Error(`unknown spec: ${slug}`);
+  return execHarness(slug, filePath, [path.dirname(filePath)]);
+}
+
+async function execHarness(
+  slug: string,
+  submissionPath: string,
+  extraReadDirs: string[]
+): Promise<HarnessResult[]> {
+  const specDir = path.join(SPECS_ROOT, slug);
   try {
     const { stdout } = await execFileAsync(
       process.execPath,
       [
         "--permission",
         `--allow-fs-read=${SPECS_ROOT}`,
-        `--allow-fs-read=${SUBMISSIONS_ROOT}`,
+        ...extraReadDirs.map((d) => `--allow-fs-read=${d}`),
         path.join(SPECS_ROOT, "_harness.mjs"),
         specDir,
         submissionPath,
@@ -84,9 +102,9 @@ export async function runVerification(
         },
       }
     );
-    results = JSON.parse(stdout) as HarnessResult[];
+    return JSON.parse(stdout) as HarnessResult[];
   } catch (e) {
-    results = [
+    return [
       {
         name: "verification harness completed",
         kind: "public",
@@ -95,6 +113,4 @@ export async function runVerification(
       },
     ];
   }
-
-  await recordRun(projectId, submissionFile, results);
 }
