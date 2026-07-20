@@ -210,9 +210,16 @@ export default function OneShotConsole({ tasks, liveEnabled }: { tasks: Task[]; 
             <div className="mt-4">
               {v.green ? (
                 <div className="pp-glow rounded-xl border border-pine/30 bg-pine-wash px-4 py-3.5">
-                  <p className="text-[14px] font-bold text-pine-deep">원샷에 통과 — 숨은 테스트까지 전부.</p>
+                  <p className="text-[14px] font-bold text-pine-deep">
+                    원샷에 통과 — 숨은 테스트까지 전부.
+                    {v.creditsAwarded !== null && (
+                      <span className="text-pine"> +{v.creditsAwarded} 크레딧</span>
+                    )}
+                  </p>
                   <p className="mt-1 text-[12.5px] leading-relaxed text-ink-soft">
-                    이 프롬프트는 아래 기록에 공개 박제됩니다. 그게 보상입니다.
+                    {v.creditsAwarded !== null
+                      ? "크레딧이 지급됐습니다 — 모아서 당신의 바운티를 걸어보세요. 프롬프트는 아래 기록에 공개 박제됩니다."
+                      : "프롬프트는 아래 기록에 공개 박제됩니다. 로그인하고 통과하면 크레딧도 지급돼요."}
                   </p>
                 </div>
               ) : (

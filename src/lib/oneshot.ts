@@ -17,6 +17,11 @@ const MODEL = "claude-opus-4-8";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MAX_PROMPT_CHARS = 500;
 
+/** Credits paid out for a green one-shot (signed-in players only) — the
+ * earn-to-post entry point from docs/bounty-model.md §3. Matches the "+50
+ * 크레딧" the hero LiveVerdict has promised since the bounty pivot. */
+export const ONESHOT_GREEN_REWARD = 50;
+
 export interface OneShotTask {
   slug: string;
   title: string;
