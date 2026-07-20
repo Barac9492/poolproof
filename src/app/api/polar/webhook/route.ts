@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parsePaidOrder, WebhookVerificationError } from "@/lib/polar";
+import { parsePaidOrder, paymentsEnabled, WebhookVerificationError } from "@/lib/polar";
 import { dbBackend, fulfillPolarCredits } from "@/lib/db";
 
 // Polar fulfillment: order.paid → credit the buyer's balance.
 // Dormant until POLAR_WEBHOOK_SECRET is configured.
 export async function POST(req: NextRequest) {
-  if (!process.env.POLAR_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: "webhook not configured" }, { status: 503 });
+  if (!paymentsEnabled()) {
+    return NextResponse.json({ error: "sandbox payments not configured" }, { status: 503 });
   }
   if (process.env.VERCEL && dbBackend() !== "turso") {
     return NextResponse.json({ error: "durable storage not configured" }, { status: 503 });
