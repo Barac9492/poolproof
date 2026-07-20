@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import crypto from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { recordRun, type HarnessResult } from "./db";
 import { PRIVATE_HOLDOUT_ENV } from "./holdouts";
 
@@ -105,16 +107,39 @@ function parseSignedResults(stdout: string, secret: string): HarnessResult[] {
   }
   return sanitized;
 }
-function privateHoldoutPayload(slug: string): string {
+interface MaterializedHoldout {
+  file: string;
+  readDir: string;
+  cleanupDir: string | null;
+}
+
+/** Materialize secret source as a mode-0600 file outside submission-readable
+ * roots. Unlike a data: URL, stack traces reveal only a random filename, never
+ * the encoded holdout source itself. */
+function materializePrivateHoldout(slug: string): MaterializedHoldout {
   const envName = PRIVATE_HOLDOUT_ENV[slug];
   if (!envName) throw new Error(`private holdout mapping is not configured for ${slug}`);
 
   const configured = process.env[envName];
-  if (configured) return configured;
+  if (configured) {
+    const specDir = path.join(SPECS_ROOT, slug);
+    const source = Buffer.from(configured, "base64")
+      .toString("utf8")
+      .replaceAll("__WORDS_URL__", pathToFileURL(path.join(specDir, "words.mjs")).href)
+      .replaceAll("__PLAY_URL__", pathToFileURL(path.join(specDir, "_play.mjs")).href);
+    if (!source.includes("export default") || source.length > 512_000) {
+      throw new Error(`invalid private holdout payload for ${slug}`);
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pp-holdout-"));
+    fs.chmodSync(dir, 0o700);
+    const file = path.join(dir, "suite.mjs");
+    fs.writeFileSync(file, source, { encoding: "utf8", mode: 0o600 });
+    return { file, readDir: dir, cleanupDir: dir };
+  }
 
   const localHoldout = path.join(SPECS_ROOT, slug, "holdout.test.mjs");
   if (process.env.NODE_ENV !== "production" && fs.existsSync(localHoldout)) {
-    return Buffer.from(fs.readFileSync(localHoldout, "utf8")).toString("base64");
+    return { file: localHoldout, readDir: path.dirname(localHoldout), cleanupDir: null };
   }
   throw new Error(`private holdout is not configured for ${slug}`);
 }
@@ -208,7 +233,7 @@ async function execHarness(
   extraReadDirs: string[]
 ): Promise<HarnessResult[]> {
   const specDir = path.join(SPECS_ROOT, slug);
-  const privateHoldout = privateHoldoutPayload(slug);
+  const privateHoldout = materializePrivateHoldout(slug);
   const resultSecret = crypto.randomBytes(32).toString("hex");
   try {
     const { stdout } = await execFileAsync(
@@ -220,9 +245,11 @@ async function execHarness(
         "--permission",
         `--allow-fs-read=${SPECS_ROOT}`,
         ...extraReadDirs.map((d) => `--allow-fs-read=${d}`),
+        `--allow-fs-read=${privateHoldout.readDir}`,
         path.join(SPECS_ROOT, "_harness.mjs"),
         specDir,
         submissionPath,
+        privateHoldout.file,
       ],
       {
         timeout: RUN_TIMEOUT_MS,
@@ -231,7 +258,6 @@ async function execHarness(
           // The harness consumes and deletes this before importing untrusted code.
           PATH: "",
           NODE_ENV: "production",
-          PP_HOLDOUT_B64: privateHoldout,
           PP_RESULT_SECRET: resultSecret,
         },
       }
@@ -239,5 +265,9 @@ async function execHarness(
     return parseSignedResults(stdout, resultSecret);
   } catch (e) {
     return harnessFailure(`harness error: ${String(e instanceof Error ? e.message : e)}`);
+  } finally {
+    if (privateHoldout.cleanupDir) {
+      fs.rmSync(privateHoldout.cleanupDir, { recursive: true, force: true });
+    }
   }
 }
