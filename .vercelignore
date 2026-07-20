@@ -1,0 +1,3 @@
+# Local spec-author holdouts must never enter a Vercel source upload.
+# Production receives private suites only through sensitive environment variables.
+specs/*/holdout.test.mjs
