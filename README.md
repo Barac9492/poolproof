@@ -75,13 +75,15 @@ or `local` (dev file).
 
 ## Try the verification harness
 
-Run any spec's public suite against a candidate module, exactly as the server
-does:
+Run a spec's public suite against a candidate module:
 
 ```bash
-node specs/_harness.mjs specs/markdown-alerts submissions/markdown-alerts/index.mjs   # 10/10 → green
-node specs/_harness.mjs specs/markdown-alerts submissions/markdown-alerts/attempt-1.mjs # overfits → red on holdouts
+node specs/_harness.mjs specs/markdown-alerts submissions/markdown-alerts/index.mjs
 ```
+
+Production loads rotated private holdouts from sensitive environment variables;
+they are never committed to this public repository. Local spec authors can use
+an ignored `specs/<slug>/holdout.test.mjs` while developing a suite.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [poolproof.dev/docs/building](https://poolproof.dev/docs/building).

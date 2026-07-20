@@ -19,9 +19,11 @@ the app runs fully without any secrets.
 
 A spec is a contract card plus 3+ testable acceptance criteria. See
 [docs/writing-specs](https://poolproof.dev/docs/writing-specs). Founding specs
-live in `specs/<slug>/` as `public.test.mjs` (visible) and `holdout.test.mjs`
-(hidden from builders). Each test is `{ name, run(mod) }` and asserts behavior
-on the submission module.
+live in `specs/<slug>/` as `public.test.mjs`. Private holdouts are never
+committed to this repository: production loads rotated, base64-encoded suites
+from sensitive environment variables, while local authors may use an ignored
+`holdout.test.mjs`. Each test is `{ name, run(mod) }` and asserts behavior on
+the submission module.
 
 ## Build against a spec
 
@@ -31,8 +33,8 @@ Run any spec's public suite against a candidate module before you stake:
 node specs/_harness.mjs specs/<slug> path/to/your-module.mjs
 ```
 
-The harness prints a JSON result per test. Get the public suite all-green
-locally, then submit — the hidden holdouts still have to pass on the server.
+The harness prints a JSON result per public test. Get that suite all-green
+locally, then submit. The server separately loads and runs the private holdouts.
 See [docs/building](https://poolproof.dev/docs/building).
 
 ## The verification harness

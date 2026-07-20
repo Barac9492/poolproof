@@ -40,6 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# private local holdout suites (production copies live in sensitive env vars)
+specs/*/holdout.test.mjs
+
 # local sqlite database
 fablepool.db
 fablepool.db-*
