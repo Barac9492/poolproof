@@ -34,21 +34,23 @@ never force-add one or bypass those upload rules.
 Run any spec's public suite against a candidate module before you stake:
 
 ```bash
-node specs/_harness.mjs specs/<slug> path/to/your-module.mjs
+PP_RESULT_SECRET=0123456789abcdef0123456789abcdef \
+  node --experimental-vm-modules specs/_harness.mjs \
+  specs/<slug> path/to/your-module.mjs
 ```
 
-The harness prints a JSON result per public test. Get that suite all-green
-locally, then submit. The server separately loads and runs the private holdouts.
+The harness emits one signed result envelope. With no ignored local holdout file,
+it contains the public tests only; production separately requires and runs the
+private payload before accepting any result.
 See [docs/building](https://poolproof.dev/docs/building).
 
 ## The verification harness
 
-`specs/_harness.mjs` imports a submission module and runs every `public` and
-`holdout` test against it, printing a JSON array. In production it runs in a
-hardened child process (clean env, Node `--permission` with read-only access
-scoped to `specs/` and `submissions/`, no child processes). Network isolation
-(the last sandbox layer) is in progress — until it lands, only vetted
-submissions run.
+`specs/_harness.mjs` loads candidate source into a separate VM realm with no
+imports, process, host objects, filesystem, or network global. The outer child
+also has a clean environment, Node permissions, memory/time limits, and a
+per-run authenticated manifest. Missing tests, candidate output, and early exits
+fail closed. An external OS sandbox remains planned as defense in depth.
 
 ## Code layout
 
