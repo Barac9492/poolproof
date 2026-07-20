@@ -1,7 +1,7 @@
 // Poolproof verification harness.
-// Usage: node specs/_harness.mjs <specDir> <submissionEntry>
-// Loads private holdouts before importing untrusted submission code, deletes
-// the one-time environment payload, then runs both suites in memory.
+// Usage: node specs/_harness.mjs <specDir> <submissionEntry> [holdoutFile]
+// Loads trusted tests before evaluating untrusted submission code, then emits
+// one authenticated, complete result manifest.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -9,7 +9,7 @@ import { createHmac } from "node:crypto";
 import { createContext, runInContext, SourceTextModule } from "node:vm";
 import { pathToFileURL } from "node:url";
 
-const [specDir, submissionEntry] = process.argv.slice(2);
+const [specDir, submissionEntry, holdoutEntry] = process.argv.slice(2);
 if (!specDir || !submissionEntry) {
   console.error("usage: node _harness.mjs <specDir> <submissionEntry>");
   process.exit(2);
@@ -105,26 +105,10 @@ async function loadSubmission(file) {
 }
 
 async function loadPrivateHoldouts() {
-  const encoded = process.env.PP_HOLDOUT_B64;
-  delete process.env.PP_HOLDOUT_B64;
-  if (!encoded) return loadFileTests(path.resolve(specDir, "holdout.test.mjs"), true);
-
-  const wordsUrl = pathToFileURL(path.resolve(specDir, "words.mjs")).href;
-  const playUrl = pathToFileURL(path.resolve(specDir, "_play.mjs")).href;
-  const source = Buffer.from(encoded, "base64")
-    .toString("utf8")
-    .replaceAll("__WORDS_URL__", wordsUrl)
-    .replaceAll("__PLAY_URL__", playUrl);
-  if (!source.includes("export default")) throw new Error("invalid private holdout payload");
-
-  const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  try {
-    return (await import(moduleUrl)).default ?? [];
-  } catch (error) {
-    throw new Error(
-      `private holdout payload failed to load for ${path.basename(specDir)}: ${String(error?.message || error)}`
-    );
-  }
+  const file = holdoutEntry
+    ? path.resolve(holdoutEntry)
+    : path.resolve(specDir, "holdout.test.mjs");
+  return loadFileTests(file, !holdoutEntry);
 }
 
 // Load test definitions first. The submission imported below cannot read the
