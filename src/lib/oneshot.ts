@@ -17,10 +17,8 @@ const MODEL = "claude-opus-4-8";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MAX_PROMPT_CHARS = 500;
 
-/** Credits paid out for a green one-shot (signed-in players only) — the
- * earn-to-post entry point from docs/bounty-model.md §3. Matches the "+50
- * 크레딧" the hero LiveVerdict has promised since the bounty pivot. */
-export const ONESHOT_GREEN_REWARD = 50;
+/** Credits paid out for a green one-shot (signed-in players only). */
+export { ONESHOT_GREEN_REWARD } from "./economy";
 
 export interface OneShotTask {
   slug: string;
@@ -148,6 +146,11 @@ export async function executeOneShot(
   const green = results.length > 0 && results.every((r) => r.status === "pass");
   const firstDead = hold.findIndex((r) => r.status === "fail");
   const firstFail = results.find((r) => r.status === "fail");
+  const safeFailureDetail = firstFail
+    ? firstFail.kind === "holdout"
+      ? "숨은 테스트 실패"
+      : `${firstFail.name}${firstFail.detail ? ` — ${firstFail.detail}` : ""}`.slice(0, 300)
+    : null;
 
   const id = await recordOneShotRun({
     slug,
@@ -162,7 +165,7 @@ export async function executeOneShot(
     holdoutTotal: hold.length,
     green,
     diedAt: firstDead === -1 ? null : firstDead + 1,
-    detail: firstFail ? `${firstFail.name}${firstFail.detail ? ` — ${firstFail.detail}` : ""}`.slice(0, 300) : null,
+    detail: safeFailureDetail,
   });
 
   return {
@@ -180,7 +183,7 @@ export async function executeOneShot(
       holdout_total: hold.length,
       green: green ? 1 : 0,
       died_at: firstDead === -1 ? null : firstDead + 1,
-      detail: firstFail?.name ?? null,
+      detail: safeFailureDetail,
       created_at: new Date().toISOString(),
     },
     // Holdout NAMES never leave the server (grid.ts rule) — only kind + pass.
