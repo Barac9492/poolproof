@@ -4,11 +4,10 @@ import { Polar } from "@polar-sh/sdk";
 // Diagnostic: reports whether POLAR_ACCESS_TOKEN authenticates and against which
 // server — WITHOUT ever exposing the token value. Gated behind CRON_SECRET.
 export async function GET(req: NextRequest) {
-  // Gated behind CRON_SECRET. Exposes only non-sensitive diagnostics (token
-  // TYPE prefix + length + auth status) — never the token itself.
+  // Gated behind CRON_SECRET. Exposes only configuration presence and auth
+  // status, never the token value, prefix, or length.
   const secret = process.env.CRON_SECRET;
-  const key = req.nextUrl.searchParams.get("key");
-  if (secret && key !== secret) {
+  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const token = process.env.POLAR_ACCESS_TOKEN ?? "";
@@ -24,8 +23,6 @@ export async function GET(req: NextRequest) {
 
   const info = {
     tokenPresent: !!token,
-    tokenPrefix: token ? token.slice(0, 10) : null,
-    tokenLength: token.length,
     webhookSecretPresent: !!process.env.POLAR_WEBHOOK_SECRET,
     polarServerEnv: serverEnv,
     resolvedServer: server,
