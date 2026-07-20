@@ -424,6 +424,17 @@ async function migrateAndSeed(c: Client): Promise<void> {
       "Rotating private answer families: public tests show the contract, production holdouts stay outside the repository",
     ],
   });
+  await c.execute({
+    sql: `UPDATE contract_cards SET you_get = ?
+          WHERE project_id = (SELECT id FROM projects WHERE slug = 'wordle-solver')`,
+    args: [
+      JSON.stringify([
+        "A JS module exporting nextGuess(history, words) that solves any answer in ≤6",
+        "Passes a rotating private holdout suite without relying on fixed answer cases",
+        "MIT-licensed source + public test suite + permanent verification result",
+      ]),
+    ],
+  });
   await c.execute(
     "UPDATE projects SET deadline_at = datetime(created_at, '+30 days') WHERE deadline_at IS NULL AND status != 'green'"
   );
