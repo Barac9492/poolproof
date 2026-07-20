@@ -12,18 +12,19 @@ if (!specDir || !submissionEntry) {
   process.exit(2);
 }
 
-async function loadFileTests(file) {
+async function loadFileTests(file, optional = false) {
   try {
     return (await import(pathToFileURL(file).href)).default ?? [];
-  } catch {
-    return [];
+  } catch (error) {
+    if (optional) return [];
+    throw new Error(`suite failed to load: ${path.basename(file)}: ${String(error?.message || error)}`);
   }
 }
 
 async function loadPrivateHoldouts() {
   const encoded = process.env.PP_HOLDOUT_B64;
   delete process.env.PP_HOLDOUT_B64;
-  if (!encoded) return loadFileTests(path.resolve(specDir, "holdout.test.mjs"));
+  if (!encoded) return loadFileTests(path.resolve(specDir, "holdout.test.mjs"), true);
 
   const wordsUrl = pathToFileURL(path.resolve(specDir, "words.mjs")).href;
   const playUrl = pathToFileURL(path.resolve(specDir, "_play.mjs")).href;
@@ -34,7 +35,13 @@ async function loadPrivateHoldouts() {
   if (!source.includes("export default")) throw new Error("invalid private holdout payload");
 
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  return (await import(moduleUrl)).default ?? [];
+  try {
+    return (await import(moduleUrl)).default ?? [];
+  } catch (error) {
+    throw new Error(
+      `private holdout payload failed to load for ${path.basename(specDir)}: ${String(error?.message || error)}`
+    );
+  }
 }
 
 // Load test definitions first. The submission imported below cannot read the
