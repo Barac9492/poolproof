@@ -67,6 +67,7 @@ export default async function ProjectPage({
   const submissions = listSubmissions(p.slug);
   const hasSuite = specExists(p.slug);
   const suiteReady = verificationSuiteReady(p.slug);
+  const approvedSuite = p.suite_ready === 1 && suiteReady;
   const suiteSource = hasSuite ? readPublicSuite(p.slug) : null;
   const balance = user ? await getBalance(user.handle) : 0;
 
@@ -139,7 +140,7 @@ export default async function ProjectPage({
               />
             )}
 
-            {p.status === "open" && suiteReady && (
+            {p.status === "open" && approvedSuite && (
               <ClaimSlot
                 id={p.id}
                 slug={p.slug}
@@ -149,7 +150,7 @@ export default async function ProjectPage({
               />
             )}
 
-            {p.status === "building" && slot && (
+            {p.status === "building" && slot && approvedSuite && (
               <RunPanel
                 id={p.id}
                 slot={slot}
@@ -168,14 +169,14 @@ export default async function ProjectPage({
               </div>
             )}
 
-            {!hasSuite && p.status === "funding" && (
+            {!approvedSuite && p.status === "funding" && (
               <div className="rounded-2xl border border-dashed border-line-strong bg-paper-deep/40 p-5 text-[13px] leading-relaxed text-muted">
                 <span className="font-mono text-[11px] tracking-[0.14em] text-ink-soft">
                   SUITE STATUS
                 </span>{" "}
-                · The public criteria below are being curated into an executable test suite (public +
-                hidden holdouts). The pool can fill meanwhile, but no build slot opens — and no money
-                can move — until the suite lands.
+                · The project is awaiting explicit executable-suite approval (public tests + private
+                holdouts). The pool can fill meanwhile, but no build slot opens — and no payout can
+                occur — until both the code and approval are present.
               </div>
             )}
           </>
