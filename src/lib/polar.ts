@@ -18,7 +18,7 @@ export const CREDIT_PACKS = [
 export type PackId = (typeof CREDIT_PACKS)[number]["id"];
 
 export function paymentsEnabled(): boolean {
-  return !!process.env.POLAR_ACCESS_TOKEN;
+  return Boolean(process.env.POLAR_ACCESS_TOKEN && process.env.POLAR_WEBHOOK_SECRET);
 }
 
 // Polar's sandbox is a separate environment; use it whenever the token is a
@@ -80,6 +80,7 @@ export async function createCheckoutSession(input: {
 }
 
 export interface FulfillableOrder {
+  orderId: string;
   handle: string;
   credits: number;
 }
@@ -97,11 +98,14 @@ export function parsePaidOrder(
   if (!secret) throw new WebhookVerificationError("no webhook secret configured");
   const event = validateEvent(body, headers, secret);
   if (event.type !== "order.paid") return null;
-  const md = (event.data.metadata ?? {}) as Record<string, unknown>;
+  const data = event.data as unknown as { id?: unknown; metadata?: Record<string, unknown> };
+  const orderId = typeof data.id === "string" ? data.id : null;
+  const md = data.metadata ?? {};
   const handle = typeof md.handle === "string" ? md.handle : null;
   const credits = Number(md.credits);
-  if (!handle || !Number.isFinite(credits) || credits <= 0) return null;
-  return { handle, credits };
+  const allowedAmount = CREDIT_PACKS.some((pack) => pack.credits === credits);
+  if (!orderId || !handle || !Number.isFinite(credits) || credits <= 0 || !allowedAmount) return null;
+  return { orderId, handle, credits };
 }
 
 export { WebhookVerificationError };
