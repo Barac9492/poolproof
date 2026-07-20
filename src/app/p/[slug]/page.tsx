@@ -27,6 +27,7 @@ import { ClaimSlot, RunPanel } from "@/components/SlotPanel";
 import { VoteControl, WatchButton } from "@/components/Social";
 import Replay from "@/components/Replay";
 import { buildRunGrid } from "@/lib/grid";
+import { SLOT_STAKE_RATIO } from "@/lib/economy";
 
 export const dynamic = "force-dynamic";
 
@@ -140,7 +141,7 @@ export default async function ProjectPage({
               <ClaimSlot
                 id={p.id}
                 slug={p.slug}
-                stake={Math.max(1, Math.floor(p.goal_credits * 0.05))}
+                stake={Math.max(1, Math.floor(p.goal_credits * SLOT_STAKE_RATIO))}
                 signedIn={!!user}
                 balance={balance}
               />
@@ -196,8 +197,8 @@ function ArenaBanner() {
         <h2 className="text-[15px] font-bold text-pine-deep">🏛 AI 콜로세움 — 오프닝 나이트</h2>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-soft">
           AI가 이 Wordle 솔버를 <span className="font-semibold text-ink">라이브로</span> 짓습니다.
-          공개 테스트 6개는 통과해요. 숨겨진 보스 단어(watch·mound·wound)가 진짜입니다 —
-          살아남는지, 6수를 다 쓰고 죽는지 라이브로.
+          공개 테스트는 계약을 보여주고, 저장소 밖에서 회전하는 비공개 보스 케이스가
+          과적합을 잡습니다. 살아남는지, 6수를 다 쓰고 죽는지 라이브로.
         </p>
       </div>
       <div className="grid sm:grid-cols-2">
