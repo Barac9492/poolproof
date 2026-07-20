@@ -25,7 +25,9 @@ from sensitive environment variables, while local authors may use an ignored
 `holdout.test.mjs`. Each test is `{ name, run(mod) }` and asserts behavior on
 the submission module. A private suite that imports Wordle support files must
 use the `__WORDS_URL__` and `__PLAY_URL__` placeholder specifiers; the harness
-replaces them with permitted file URLs before loading the encrypted payload.
+replaces them with permitted file URLs before loading the deployment-secret
+payload. Both `.gitignore` and `.vercelignore` exclude local holdout files;
+never force-add one or bypass those upload rules.
 
 ## Build against a spec
 
