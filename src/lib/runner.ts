@@ -9,6 +9,25 @@ const execFileAsync = promisify(execFile);
 const SPECS_ROOT = path.join(process.cwd(), "specs");
 const SUBMISSIONS_ROOT = path.join(process.cwd(), "submissions");
 const RUN_TIMEOUT_MS = 15_000;
+const PRIVATE_HOLDOUT_ENV: Record<string, string> = {
+  josa: "HOLDOUT_JOSA_B64",
+  "markdown-alerts": "HOLDOUT_MARKDOWN_ALERTS_B64",
+  "wordle-solver": "HOLDOUT_WORDLE_SOLVER_B64",
+};
+
+function privateHoldoutPayload(slug: string): string | undefined {
+  const envName = PRIVATE_HOLDOUT_ENV[slug];
+  if (!envName) return undefined;
+
+  const configured = process.env[envName];
+  if (configured) return configured;
+
+  const localHoldout = path.join(SPECS_ROOT, slug, "holdout.test.mjs");
+  if (process.env.NODE_ENV !== "production" && fs.existsSync(localHoldout)) {
+    return Buffer.from(fs.readFileSync(localHoldout, "utf8")).toString("base64");
+  }
+  throw new Error(`private holdout is not configured for ${slug}`);
+}
 
 /** Submission files available for a project (demo: local dir; production: git ref). */
 export function listSubmissions(slug: string): string[] {
@@ -81,6 +100,7 @@ async function execHarness(
   extraReadDirs: string[]
 ): Promise<HarnessResult[]> {
   const specDir = path.join(SPECS_ROOT, slug);
+  const privateHoldout = privateHoldoutPayload(slug);
   try {
     const { stdout } = await execFileAsync(
       process.execPath,
@@ -96,9 +116,10 @@ async function execHarness(
         timeout: RUN_TIMEOUT_MS,
         maxBuffer: 1024 * 1024,
         env: {
-          // deliberately minimal — nothing from process.env leaks to submissions
+          // The harness consumes and deletes this before importing untrusted code.
           PATH: "",
           NODE_ENV: "production",
+          ...(privateHoldout ? { PP_HOLDOUT_B64: privateHoldout } : {}),
         },
       }
     );
