@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition, useState } from "react";
+import { useRef, useTransition, useState } from "react";
 import Link from "next/link";
 import { pledgeAction } from "@/lib/actions";
 
@@ -21,6 +21,11 @@ export default function PledgeForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [amount, setAmount] = useState(50);
+  const requestKey = useRef<string | null>(null);
+  const chooseAmount = (next: number) => {
+    setAmount(next);
+    requestKey.current = null;
+  };
   const max = Math.min(remaining, balance);
   const capped = Math.min(amount, max);
 
@@ -47,7 +52,7 @@ export default function PledgeForm({
           {QUICK.map((q) => (
             <button
               key={q}
-              onClick={() => setAmount(q)}
+              onClick={() => chooseAmount(q)}
               className={`rounded-lg border px-3 py-1.5 font-mono text-[12.5px] transition ${
                 amount === q
                   ? "border-escrow bg-card font-semibold text-escrow"
@@ -61,14 +66,23 @@ export default function PledgeForm({
             type="number"
             min={1}
             value={amount}
-            onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
+            onChange={(e) => chooseAmount(Math.max(1, Number(e.target.value) || 1))}
             className="w-24 rounded-lg border border-line bg-card px-3 py-1.5 font-mono text-[12.5px] text-ink focus:border-escrow focus:outline-none"
           />
           <button
             onClick={() => {
               const fd = new FormData();
+              const key = requestKey.current ?? crypto.randomUUID();
+              requestKey.current = key;
               fd.set("amount", String(capped));
-              startTransition(() => pledgeAction(id, fd));
+              fd.set("idempotency_key", key);
+              startTransition(async () => {
+                await pledgeAction(id, fd);
+                // A definitively completed action starts a new intent. If the
+                // transport rejects ambiguously, React leaves this key in place
+                // so the same debit can be retried safely.
+                requestKey.current = null;
+              });
             }}
             disabled={pending || capped <= 0}
             className="ml-auto rounded-lg bg-ink px-5 py-2 text-[13px] font-semibold text-white transition hover:bg-ink-soft disabled:opacity-50"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { submitOneShotAction, type OneShotActionResult } from "@/lib/oneshot-actions";
 
 // The one-shot console: prompt in → REAL verdict out, revealed with the same
@@ -22,7 +23,15 @@ const WORKING_LINES = [
   "숨은 테스트 채점 중…",
 ];
 
-export default function OneShotConsole({ tasks, liveEnabled }: { tasks: Task[]; liveEnabled: boolean }) {
+export default function OneShotConsole({
+  tasks,
+  liveEnabled,
+  signedIn,
+}: {
+  tasks: Task[];
+  liveEnabled: boolean;
+  signedIn: boolean;
+}) {
   const [slug, setSlug] = useState(tasks[0]?.slug ?? "");
   const [prompt, setPrompt] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -137,15 +146,24 @@ export default function OneShotConsole({ tasks, liveEnabled }: { tasks: Task[]; 
 
       <button
         onClick={fire}
-        disabled={running || prompt.trim().length < 4}
+        disabled={running || !signedIn || prompt.trim().length < 4}
         className={`mt-3 w-full rounded-xl px-5 py-3.5 text-[15px] font-semibold shadow-sm transition ${
-          !running && prompt.trim().length >= 4
+          !running && signedIn && prompt.trim().length >= 4
             ? "bg-pine text-white hover:bg-pine-deep"
             : "cursor-not-allowed bg-line-strong text-white/80"
         }`}
       >
-        {phase === "working" ? WORKING_LINES[workingLine] : running ? "판정 중…" : "원샷 발사 →"}
+        {phase === "working" ? WORKING_LINES[workingLine] : running ? "판정 중…" : signedIn ? "원샷 발사 →" : "로그인 후 원샷 발사"}
       </button>
+
+      {!signedIn && (
+        <p className="mt-3 rounded-xl border border-line bg-paper-deep/40 px-4 py-3 text-center text-[12.5px] text-muted">
+          모델 비용 보호를 위해 라이브 원샷은 계정당 하루 3회로 제한됩니다.{" "}
+          <Link href="/login?next=%2Foneshot" className="font-semibold text-pine hover:underline">
+            로그인
+          </Link>
+        </p>
+      )}
 
       {!liveEnabled && (
         <p className="mt-3 rounded-xl border border-dashed border-line-strong bg-paper-deep/40 px-4 py-3 text-center text-[12.5px] text-muted">
@@ -157,7 +175,8 @@ export default function OneShotConsole({ tasks, liveEnabled }: { tasks: Task[]; 
       {/* errors */}
       {result && !result.ok && result.error !== undefined && phase === "verdict" && (
         <p className="mt-4 rounded-xl border border-fail/30 bg-fail-soft px-4 py-3 text-[13px] text-ink-soft">
-          {result.error === "daily-limit" && "오늘 이 과제는 이미 발사했습니다. 내일 다시 — 그게 원샷입니다."}
+          {result.error === "sign-in-required" && "로그인해야 라이브 원샷을 실행할 수 있습니다."}
+          {result.error === "daily-limit" && "오늘의 계정 또는 전체 실행 한도에 도달했습니다. 내일 다시 시도해주세요."}
           {result.error === "live-disabled" && "라이브 모델 미연결 상태입니다."}
           {result.error === "prompt-too-short" && "프롬프트가 너무 짧습니다."}
           {result.error === "unknown-task" && "알 수 없는 과제입니다."}
