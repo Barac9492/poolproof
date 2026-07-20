@@ -4,8 +4,8 @@ import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "./auth";
-import { countOneShotToday } from "./db";
-import { executeOneShot, getOneShotTask, liveModelEnabled } from "./oneshot";
+import { countOneShotToday, grantCredits } from "./db";
+import { executeOneShot, getOneShotTask, liveModelEnabled, ONESHOT_GREEN_REWARD } from "./oneshot";
 
 const ANON_COOKIE = "pp_player";
 const ANON_TTL_S = 60 * 60 * 24 * 365;
@@ -41,6 +41,8 @@ export interface OneShotActionResult {
     holdoutCells: boolean[];
     detail: string | null;
     display: string;
+    /** Credits paid for this green — null when anonymous (nothing to credit). */
+    creditsAwarded: number | null;
   };
 }
 
@@ -61,6 +63,16 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
 
   try {
     const { run, cells } = await executeOneShot(slug, prompt, player, display);
+
+    // Earn-to-post entry: a green one-shot pays out — but only to an
+    // accountable identity. Anonymous greens still get the public record.
+    const signedIn = !player.startsWith("anon:");
+    let creditsAwarded: number | null = null;
+    if (run.green === 1 && signedIn) {
+      await grantCredits(player, ONESHOT_GREEN_REWARD);
+      creditsAwarded = ONESHOT_GREEN_REWARD;
+    }
+
     revalidatePath("/oneshot");
     return {
       ok: true,
@@ -71,6 +83,7 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
         holdoutCells: cells.filter((c) => c.kind === "holdout").map((c) => c.pass),
         detail: run.green === 1 ? null : run.detail,
         display,
+        creditsAwarded,
       },
     };
   } catch (e) {
