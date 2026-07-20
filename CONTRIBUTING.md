@@ -23,7 +23,9 @@ live in `specs/<slug>/` as `public.test.mjs`. Private holdouts are never
 committed to this repository: production loads rotated, base64-encoded suites
 from sensitive environment variables, while local authors may use an ignored
 `holdout.test.mjs`. Each test is `{ name, run(mod) }` and asserts behavior on
-the submission module.
+the submission module. A private suite that imports Wordle support files must
+use the `__WORDS_URL__` and `__PLAY_URL__` placeholder specifiers; the harness
+replaces them with permitted file URLs before loading the encrypted payload.
 
 ## Build against a spec
 
