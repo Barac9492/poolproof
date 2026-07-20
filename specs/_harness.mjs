@@ -3,6 +3,7 @@
 // Loads private holdouts before importing untrusted submission code, deletes
 // the one-time environment payload, then runs both suites in memory.
 
+import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -13,10 +14,10 @@ if (!specDir || !submissionEntry) {
 }
 
 async function loadFileTests(file, optional = false) {
+  if (optional && !fs.existsSync(file)) return [];
   try {
     return (await import(pathToFileURL(file).href)).default ?? [];
   } catch (error) {
-    if (optional) return [];
     throw new Error(`suite failed to load: ${path.basename(file)}: ${String(error?.message || error)}`);
   }
 }
