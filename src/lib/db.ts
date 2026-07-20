@@ -636,6 +636,25 @@ async function migrateAndSeed(c: Client): Promise<void> {
     });
   });
 
+  // Redact retired holdout-family copy from the original live Wordle contract
+  // without changing its ownership, funding state, or suite approval.
+  await runMigrationOnce(c, "migration:wordle-contract-redaction-v2", async (tx) => {
+    await tx.execute({
+      sql: `UPDATE contract_cards SET you_get = ?
+            WHERE project_id = (
+              SELECT id FROM projects
+              WHERE slug = 'wordle-solver' AND spec_author = 'barac9492' AND goal_credits = 1500
+            )`,
+      args: [
+        JSON.stringify([
+          "A JS module exporting nextGuess(history, words) that solves answers in ≤6",
+          "Passes a rotating private holdout suite without relying on fixed answer cases",
+          "MIT-licensed source + public test suite + permanent verification result",
+        ]),
+      ],
+    });
+  });
+
   // Legacy check-then-write claims could leave more than one active slot. Keep
   // the oldest, close every duplicate, and return live user stakes before the
   // unique partial index is created. Demo stakes are synthetic ledger only.
