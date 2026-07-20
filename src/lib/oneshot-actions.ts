@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "./auth";
-import { countOneShotToday, grantCredits } from "./db";
-import { executeOneShot, getOneShotTask, liveModelEnabled, ONESHOT_GREEN_REWARD } from "./oneshot";
+import { claimOneShotToday, grantCredits, releaseOneShotClaim } from "./db";
+import { executeOneShot, getOneShotTask, liveModelEnabled } from "./oneshot";
+import { ONESHOT_GREEN_REWARD } from "./economy";
 
 const ANON_COOKIE = "pp_player";
 const ANON_TTL_S = 60 * 60 * 24 * 365;
@@ -59,10 +60,12 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
   if (prompt.length < 4) return { ok: false, error: "prompt-too-short" };
 
   const { player, display } = await resolvePlayer();
-  if ((await countOneShotToday(slug, player)) >= 1) return { ok: false, error: "daily-limit" };
+  if (!(await claimOneShotToday(slug, player))) return { ok: false, error: "daily-limit" };
 
+  let runRecorded = false;
   try {
     const { run, cells } = await executeOneShot(slug, prompt, player, display);
+    runRecorded = true;
 
     // Earn-to-post entry: a green one-shot pays out — but only to an
     // accountable identity. Anonymous greens still get the public record.
@@ -87,6 +90,7 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
       },
     };
   } catch (e) {
+    if (!runRecorded) await releaseOneShotClaim(slug, player);
     if (e instanceof Error && e.message === "live-disabled") return { ok: false, error: "live-disabled" };
     return { ok: false, error: "failed" };
   }
