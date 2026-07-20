@@ -22,6 +22,7 @@ import {
   isValidHandle,
 } from "@/lib/auth";
 import { isHandleTaken, createOAuthUser, type OAuthProvider } from "@/lib/db";
+import { SLOT_STAKE_RATIO } from "@/lib/economy";
 
 function refresh(slug: string) {
   revalidatePath("/");
@@ -97,7 +98,7 @@ export async function claimSlotAction(id: number) {
   const p = await getProject(id);
   if (!p) return;
   if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
-  const stake = Math.max(1, Math.floor(p.goal_credits * 0.05));
+  const stake = Math.max(1, Math.floor(p.goal_credits * SLOT_STAKE_RATIO));
   await claimSlot(id, user.handle, stake);
   refresh(p.slug);
 }
