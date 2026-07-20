@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 
 export default async function ReviewPage() {
   const user = await getSessionUser();
-  if (!isAdmin(user?.handle)) notFound();
+  if (!isAdmin(user)) notFound();
 
   const pending = await getPendingSubmissions();
 
