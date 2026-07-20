@@ -1,6 +1,7 @@
 import OneShotConsole from "@/components/OneShotConsole";
 import { getOneShotBoard, getRecentOneShotRuns } from "@/lib/db";
 import { ONESHOT_TASKS, liveModelEnabled } from "@/lib/oneshot";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 // Generation (~10–20s) + hardened run (≤15s) must fit inside the action window.
@@ -13,7 +14,11 @@ export const metadata = {
 };
 
 export default async function OneShotPage() {
-  const [board, recent] = await Promise.all([getOneShotBoard(), getRecentOneShotRuns(15)]);
+  const [board, recent, user] = await Promise.all([
+    getOneShotBoard(),
+    getRecentOneShotRuns(15),
+    getSessionUser(),
+  ]);
   const byTask = ONESHOT_TASKS.map((t) => {
     const rows = board.filter((b) => b.slug === t.slug);
     const attempts = rows.reduce((s, r) => s + Number(r.attempts), 0);
@@ -42,6 +47,7 @@ export default async function OneShotPage() {
         <OneShotConsole
           tasks={ONESHOT_TASKS.map(({ slug, title, oneLiner }) => ({ slug, title, oneLiner }))}
           liveEnabled={liveModelEnabled()}
+          signedIn={!!user}
         />
       </div>
 
