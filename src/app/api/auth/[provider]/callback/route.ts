@@ -4,6 +4,7 @@ import type { OAuthProvider } from "@/lib/db";
 import { getUserByProvider } from "@/lib/db";
 import { providerEnabled, exchangeCodeForProfile } from "@/lib/oauth";
 import { setSessionCookie, signPayload } from "@/lib/auth";
+import { safeNextPath } from "@/lib/navigation";
 
 // GET /api/auth/{provider}/callback — finish OAuth, set session or route to onboarding.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const savedState = jar.get(`oauth_state_${provider}`)?.value;
-  const next = jar.get("oauth_next")?.value || "/";
+  const next = safeNextPath(jar.get("oauth_next")?.value);
   const verifier = jar.get(`oauth_verifier_${provider}`)?.value;
 
   // clear one-time cookies regardless of outcome
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const existing = await getUserByProvider(provider, profile.providerId);
   if (existing) {
     await setSessionCookie(existing.id);
-    return clear(NextResponse.redirect(new URL(next.startsWith("/") ? next : "/", req.url)));
+    return clear(NextResponse.redirect(new URL(next, req.url)));
   }
 
   // new user → carry a signed pending identity to the onboarding (handle) step
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       name: profile.name,
       avatarUrl: profile.avatarUrl,
       suggestedHandle: profile.suggestedHandle,
-      next: next.startsWith("/") ? next : "/",
+      next,
     },
     900
   );
