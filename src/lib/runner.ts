@@ -3,21 +3,16 @@ import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import { recordRun, type HarnessResult } from "./db";
+import { PRIVATE_HOLDOUT_ENV } from "./holdouts";
 
 const execFileAsync = promisify(execFile);
 
 const SPECS_ROOT = path.join(process.cwd(), "specs");
 const SUBMISSIONS_ROOT = path.join(process.cwd(), "submissions");
 const RUN_TIMEOUT_MS = 15_000;
-const PRIVATE_HOLDOUT_ENV: Record<string, string> = {
-  josa: "HOLDOUT_JOSA_B64",
-  "markdown-alerts": "HOLDOUT_MARKDOWN_ALERTS_B64",
-  "wordle-solver": "HOLDOUT_WORDLE_SOLVER_B64",
-};
-
-function privateHoldoutPayload(slug: string): string | undefined {
+function privateHoldoutPayload(slug: string): string {
   const envName = PRIVATE_HOLDOUT_ENV[slug];
-  if (!envName) return undefined;
+  if (!envName) throw new Error(`private holdout mapping is not configured for ${slug}`);
 
   const configured = process.env[envName];
   if (configured) return configured;
@@ -119,7 +114,7 @@ async function execHarness(
           // The harness consumes and deletes this before importing untrusted code.
           PATH: "",
           NODE_ENV: "production",
-          ...(privateHoldout ? { PP_HOLDOUT_B64: privateHoldout } : {}),
+          PP_HOLDOUT_B64: privateHoldout,
         },
       }
     );
