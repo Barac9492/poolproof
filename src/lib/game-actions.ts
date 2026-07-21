@@ -74,14 +74,14 @@ export async function submitChallengeAction(promptId: number, formData: FormData
 
 export async function approveSubmissionAction(id: number) {
   const user = await getSessionUser();
-  if (!isAdmin(user?.handle)) return;
+  if (!isAdmin(user)) return;
   await approveSubmission(id);
   revalidatePath("/play/review");
 }
 
 export async function rejectSubmissionAction(id: number) {
   const user = await getSessionUser();
-  if (!isAdmin(user?.handle)) return;
+  if (!isAdmin(user)) return;
   await rejectSubmission(id);
   revalidatePath("/play/review");
 }

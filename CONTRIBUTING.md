@@ -19,30 +19,38 @@ the app runs fully without any secrets.
 
 A spec is a contract card plus 3+ testable acceptance criteria. See
 [docs/writing-specs](https://poolproof.dev/docs/writing-specs). Founding specs
-live in `specs/<slug>/` as `public.test.mjs` (visible) and `holdout.test.mjs`
-(hidden from builders). Each test is `{ name, run(mod) }` and asserts behavior
-on the submission module.
+live in `specs/<slug>/` as `public.test.mjs`. Private holdouts are never
+committed to this repository: production loads rotated, base64-encoded suites
+from sensitive environment variables, while local authors may use an ignored
+`holdout.test.mjs`. Each test is `{ name, run(mod) }` and asserts behavior on
+the submission module. A private suite that imports Wordle support files must
+use the `__WORDS_URL__` and `__PLAY_URL__` placeholder specifiers; the harness
+replaces them with permitted file URLs before loading the deployment-secret
+payload. Both `.gitignore` and `.vercelignore` exclude local holdout files;
+never force-add one or bypass those upload rules.
 
 ## Build against a spec
 
 Run any spec's public suite against a candidate module before you stake:
 
 ```bash
-node specs/_harness.mjs specs/<slug> path/to/your-module.mjs
+PP_RESULT_SECRET=0123456789abcdef0123456789abcdef \
+  node --experimental-vm-modules specs/_harness.mjs \
+  specs/<slug> path/to/your-module.mjs
 ```
 
-The harness prints a JSON result per test. Get the public suite all-green
-locally, then submit — the hidden holdouts still have to pass on the server.
+The harness emits one signed result envelope. With no ignored local holdout file,
+it contains the public tests only; production separately requires and runs the
+private payload before accepting any result.
 See [docs/building](https://poolproof.dev/docs/building).
 
 ## The verification harness
 
-`specs/_harness.mjs` imports a submission module and runs every `public` and
-`holdout` test against it, printing a JSON array. In production it runs in a
-hardened child process (clean env, Node `--permission` with read-only access
-scoped to `specs/` and `submissions/`, no child processes). Network isolation
-(the last sandbox layer) is in progress — until it lands, only vetted
-submissions run.
+`specs/_harness.mjs` loads candidate source into a separate VM realm with no
+imports, process, host objects, filesystem, or network global. The outer child
+also has a clean environment, Node permissions, memory/time limits, and a
+per-run authenticated manifest. Missing tests, candidate output, and early exits
+fail closed. An external OS sandbox remains planned as defense in depth.
 
 ## Code layout
 

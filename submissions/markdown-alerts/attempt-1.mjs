@@ -1,6 +1,5 @@
-// Attempt 1 — passes the public suite but overfits to it:
-// only handles the three alert kinds the public tests mention, and
-// requires a space after ">". The holdout suite catches both.
+// Historical candidate retained as a public regression artifact.
+// Private verification cases rotate independently of repository examples.
 
 const KINDS = { note: "Note", warning: "Warning", tip: "Tip" };
 

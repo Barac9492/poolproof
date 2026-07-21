@@ -1,39 +1,13 @@
 "use server";
 
-import { cookies } from "next/headers";
-import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "./auth";
-import { countOneShotToday, grantCredits } from "./db";
-import { executeOneShot, getOneShotTask, liveModelEnabled, ONESHOT_GREEN_REWARD } from "./oneshot";
-
-const ANON_COOKIE = "pp_player";
-const ANON_TTL_S = 60 * 60 * 24 * 365;
-
-/** Same identity resolution as the daily game: handle if signed in, else a
- * stable anonymous cookie — one-shot keeps the entry barrier at one line. */
-async function resolvePlayer(): Promise<{ player: string; display: string }> {
-  const user = await getSessionUser();
-  if (user) return { player: user.handle, display: `@${user.handle}` };
-
-  const jar = await cookies();
-  let id = jar.get(ANON_COOKIE)?.value;
-  if (!id || id.length < 8) {
-    id = crypto.randomUUID();
-    jar.set(ANON_COOKIE, id, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: ANON_TTL_S,
-      path: "/",
-    });
-  }
-  return { player: `anon:${id}`, display: `익명#${id.slice(0, 4)}` };
-}
+import { claimOneShotToday, releaseOneShotClaim } from "./db";
+import { executeOneShot, getOneShotTask, liveModelEnabled } from "./oneshot";
 
 export interface OneShotActionResult {
   ok: boolean;
-  error?: "live-disabled" | "daily-limit" | "prompt-too-short" | "unknown-task" | "failed";
+  error?: "live-disabled" | "sign-in-required" | "daily-limit" | "prompt-too-short" | "unknown-task" | "failed";
   verdict?: {
     green: boolean;
     diedAt: number | null;
@@ -41,7 +15,7 @@ export interface OneShotActionResult {
     holdoutCells: boolean[];
     detail: string | null;
     display: string;
-    /** Credits paid for this green — null when anonymous (nothing to credit). */
+    /** Credits paid for this green; null on a red result. */
     creditsAwarded: number | null;
   };
 }
@@ -58,20 +32,20 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
   const prompt = String(promptRaw || "").trim();
   if (prompt.length < 4) return { ok: false, error: "prompt-too-short" };
 
-  const { player, display } = await resolvePlayer();
-  if ((await countOneShotToday(slug, player)) >= 1) return { ok: false, error: "daily-limit" };
+  // Model calls have real marginal cost. Anonymous cookie rotation is not an
+  // identity boundary, so live one-shots require an authenticated account.
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: "sign-in-required" };
+  const player = user.handle;
+  const display = `@${user.handle}`;
+  const attemptId = await claimOneShotToday(slug, player);
+  if (!attemptId) return { ok: false, error: "daily-limit" };
 
+  let runRecorded = false;
   try {
-    const { run, cells } = await executeOneShot(slug, prompt, player, display);
-
-    // Earn-to-post entry: a green one-shot pays out — but only to an
-    // accountable identity. Anonymous greens still get the public record.
-    const signedIn = !player.startsWith("anon:");
-    let creditsAwarded: number | null = null;
-    if (run.green === 1 && signedIn) {
-      await grantCredits(player, ONESHOT_GREEN_REWARD);
-      creditsAwarded = ONESHOT_GREEN_REWARD;
-    }
+    const { run, cells, creditsAwarded } = await executeOneShot(attemptId, slug, prompt, player, display);
+    // Run insertion and any green reward commit in the same DB transaction.
+    runRecorded = true;
 
     revalidatePath("/oneshot");
     return {
@@ -83,10 +57,11 @@ export async function submitOneShotAction(slug: string, promptRaw: string): Prom
         holdoutCells: cells.filter((c) => c.kind === "holdout").map((c) => c.pass),
         detail: run.green === 1 ? null : run.detail,
         display,
-        creditsAwarded,
+        creditsAwarded: run.green === 1 ? creditsAwarded : null,
       },
     };
   } catch (e) {
+    if (!runRecorded) await releaseOneShotClaim(attemptId, slug, player);
     if (e instanceof Error && e.message === "live-disabled") return { ok: false, error: "live-disabled" };
     return { ok: false, error: "failed" };
   }

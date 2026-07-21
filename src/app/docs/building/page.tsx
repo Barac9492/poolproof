@@ -30,8 +30,8 @@ export default function BuildingPage() {
         All tests pass, or nothing moves.
       </p>
       <p>
-        The runner is hardened: a clean environment with no platform secrets, Node&apos;s permission
-        model restricting filesystem access to the spec and submission, no child processes.
+        The runner is hardened: candidate code runs in a separate realm with no imports, process,
+        host objects, filesystem, or network global. The parent accepts only a signed complete manifest.
       </p>
 
       <h2>Run the suite locally before you stake</h2>
@@ -43,11 +43,11 @@ export default function BuildingPage() {
 cd poolproof
 
 # run the public suite for a spec against your module
-node specs/_harness.mjs \\
-  specs/<slug> \\
-  path/to/your-module.mjs`}</Code>
+PP_RESULT_SECRET=0123456789abcdef0123456789abcdef \\
+  node --experimental-vm-modules specs/_harness.mjs \\
+  specs/<slug> path/to/your-module.mjs`}</Code>
       <p>
-        The harness prints a JSON result per test (pass/fail + detail). Iterate until the public
+        The harness emits a signed result envelope (pass/fail + detail). Iterate until the public
         suite is all-green locally, then submit — knowing the holdouts still have to pass on the
         server.
       </p>
@@ -61,8 +61,8 @@ node specs/_harness.mjs \\
 
       <h2>Submitting a build</h2>
       <p>
-        During the public beta, builds are submitted through us while we harden remote-code
-        isolation (network egress is the last sandbox layer in progress). To claim a slot and
+        During the public beta, builds are submitted through us while an external OS sandbox is
+        added as defense in depth. To claim a slot and
         coordinate a submission, stake on an open project and reach out via{" "}
         <a
           href="https://github.com/Barac9492/poolproof/discussions"
@@ -74,10 +74,11 @@ node specs/_harness.mjs \\
         . Self-serve git-connected submission is the next milestone — track it there.
       </p>
 
-      <h2>The maintenance annuity</h2>
+      <h2>The maintenance reserve</h2>
       <p>
-        15% of every pool is held back and streams to you monthly for as long as the test suite
-        stays green on main. Software rots; the incentive to keep it working shouldn&apos;t.
+        15% of every pool is moved into a platform-managed maintenance reserve when escrow releases.
+        Monthly streaming is not active in the public beta; any future maintenance program will be
+        documented before it can move reserve credits.
       </p>
     </DocShell>
   );

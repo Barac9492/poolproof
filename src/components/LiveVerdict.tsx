@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ONESHOT_GREEN_REWARD } from "@/lib/economy";
 
 // The tension core, made visible. A bounty submission doesn't resolve in a
 // flat instant — it *reveals*. Public tests cascade green (confidence rising),
@@ -9,8 +10,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // real: nobody in the room knows what the holdout checks. Same drama as a slot
 // pull, except it's earned by real engineering, not luck.
 //
-// Scenarios below use the *actual* josa spec (specs/josa) test names, so the
-// reveal is honest, not theater.
+// Scenarios below use retired illustrative josa cases. The active private
+// holdout suite is rotated and never bundled into client or repository code.
 
 type Cell = { label: string; pass: boolean };
 
@@ -215,7 +216,7 @@ export default function LiveVerdict() {
           ) : (
             <div className="rounded-xl border border-pine/30 bg-pine-wash px-3.5 py-3">
               <p className="text-[13px] font-bold text-pine-deep">
-                홀드아웃까지 전부 통과 — 바운티 지급 <span className="text-pine">+50 크레딧</span>
+                홀드아웃까지 전부 통과 — 바운티 지급 <span className="text-pine">+{ONESHOT_GREEN_REWARD} 크레딧</span>
               </p>
               <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
                 봐주기가 아니라 숨은 테스트가 인정한 &lsquo;진짜&rsquo;. 이 제출은

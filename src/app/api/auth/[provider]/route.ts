@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import type { OAuthProvider } from "@/lib/db";
 import { providerEnabled, authorizeUrl, randomToken, pkceChallenge } from "@/lib/oauth";
+import { safeNextPath } from "@/lib/navigation";
 
 // GET /api/auth/google | /api/auth/github — start the OAuth flow.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   }
 
   const origin = req.nextUrl.origin;
-  const next = req.nextUrl.searchParams.get("next") || "/";
+  const next = safeNextPath(req.nextUrl.searchParams.get("next"));
   const state = randomToken(24);
   const verifier = provider === "google" ? randomToken(32) : undefined;
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     path: "/",
   };
   jar.set(`oauth_state_${provider}`, state, cookieOpts);
-  jar.set("oauth_next", next.startsWith("/") ? next : "/", cookieOpts);
+  jar.set("oauth_next", next, cookieOpts);
   if (verifier) jar.set(`oauth_verifier_${provider}`, verifier, cookieOpts);
 
   return NextResponse.redirect(url);

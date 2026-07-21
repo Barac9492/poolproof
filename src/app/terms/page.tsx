@@ -4,7 +4,7 @@ export const metadata = { title: "Terms — Poolproof" };
 
 export default function TermsPage() {
   return (
-    <Legal title="Terms of Service" updated="2026-07-11">
+    <Legal title="Terms of Service" updated="2026-07-21">
       <h2>1. What Poolproof is</h2>
       <p>
         Poolproof is a coordination platform. Backers pool credits behind an executable
@@ -18,7 +18,7 @@ export default function TermsPage() {
         Pledged credits are held in project escrow. They are released if and only if a
         verification run passes every acceptance test in the project&apos;s suite, including
         holdout tests, within the project deadline. The split at release is: 74% to the builder
-        (plus stake return), 15% to the maintenance annuity reserve, 3% to the spec author, 8% to
+        (plus stake return), 15% to the platform-managed maintenance reserve, 3% to the spec author, 8% to
         the platform. The escrow ledger on each project page is the authoritative record.
       </p>
       <h2>3. Builders and stakes</h2>

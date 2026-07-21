@@ -21,14 +21,14 @@ const STEPS = [
   {
     n: "04",
     title: "A real CI run decides — not an AI reading a diff",
-    body: "The verification runner executes every test in an isolated process: the public suite plus hidden holdout tests that punish overfitting. All tests pass → escrow releases automatically: 74% builder, 15% maintenance annuity (streams monthly while main stays green), 3% spec author, 8% platform. Any failure → RED, logged forever, slot keeps trying until it expires.",
+    body: "The verification runner executes every test in an isolated process and accepts only a signed, complete result manifest: the public suite plus private holdouts that punish overfitting. All tests pass within both deadlines → escrow releases automatically: 74% builder, 15% maintenance reserve, 3% spec author, 8% platform. Any failure → RED, logged forever, slot keeps trying until it expires.",
   },
 ];
 
 const FAQ = [
   {
     q: "Can't a builder just code to the tests?",
-    a: "To the public ones, sure — that's the point, they're the spec. The hidden holdout suite exists to catch exactly that: overfit the public tests and the holdouts go red. Plus a 48h backer review window before payout finalizes.",
+    a: "To the public ones, sure — that's the point, they're the spec. The private holdout suite catches overfitting, and the runner rejects candidate-controlled output, missing tests, or an early exit before any payout can occur.",
   },
   {
     q: "What if no builder ever goes green?",
@@ -36,7 +36,7 @@ const FAQ = [
   },
   {
     q: "Who maintains it after green?",
-    a: "15% of every pool is reserved as a maintenance annuity that streams to the builder monthly only while the test suite stays green on main. Software rots; the incentive shouldn't.",
+    a: "15% of every pool is credited to a platform-managed maintenance reserve. Monthly streaming is not active in the public beta; a future program must publish its rules before reserve credits can move.",
   },
   {
     q: "Who owns the output?",

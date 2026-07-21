@@ -9,6 +9,8 @@ const TYPE_META: Record<string, { icon: string; cls: string }> = {
   spec_fee: { icon: "→", cls: "bg-pine-soft text-pine-deep" },
   platform_fee: { icon: "→", cls: "bg-paper-deep text-muted" },
   refund: { icon: "↩", cls: "bg-escrow-soft text-escrow" },
+  stake_return: { icon: "↩", cls: "bg-slot-soft text-slot" },
+  stake_burn: { icon: "×", cls: "bg-paper-deep text-muted" },
   status: { icon: "●", cls: "bg-paper-deep text-muted" },
 };
 

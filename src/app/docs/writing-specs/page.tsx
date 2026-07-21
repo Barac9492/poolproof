@@ -79,7 +79,7 @@ lowercases, trims, collapses punctuation to single dashes`}</Code>
       <h2>What you earn</h2>
       <p>
         When a build goes green, the escrow releases 74% to the builder, 15% to a maintenance
-        annuity, <strong>3% to you, the spec author</strong>, and 8% to the platform. If nothing
+        reserve, <strong>3% to you, the spec author</strong>, and 8% to the platform. If nothing
         goes green by the deadline, every backer is refunded in full and no one is charged.
       </p>
     </DocShell>

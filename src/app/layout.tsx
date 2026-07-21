@@ -20,15 +20,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://poolproof.dev"),
   title: {
-    default: "Poolproof — money moves only on green",
+    default: "Poolproof | AI 바운티, 숨은 테스트로 자동 검증",
     template: "%s",
   },
   description:
-    "Pool demand behind an executable spec. Builders stake for a slot. Escrow releases only when every acceptance test passes a real CI run.",
+    "AI로 해결할 문제를 크레딧 바운티로 올리고, 공개 테스트와 비공개 홀드아웃을 모두 통과한 결과에만 보상합니다.",
   openGraph: {
-    title: "Poolproof — money moves only on green",
+    title: "Poolproof | AI 바운티, 숨은 테스트로 자동 검증",
     description:
-      "Fund outcomes, not attempts. Escrow releases only when every acceptance test passes a real CI run.",
+      "프롬프트 한 개, 실행 한 번. 비공개 홀드아웃까지 통과한 결과에만 크레딧 바운티가 지급됩니다.",
     siteName: "Poolproof",
     type: "website",
   },
@@ -66,7 +66,7 @@ export default async function RootLayout({
 
   return (
     <html
-      lang="en"
+      lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-paper text-ink">

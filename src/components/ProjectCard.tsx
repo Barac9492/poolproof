@@ -11,6 +11,11 @@ export default function ProjectCard({ p, myVote = 0 }: { p: ProjectWithSocial; m
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={p.status} />
+          {p.is_demo === 1 && (
+            <span className="rounded-full border border-line-strong bg-paper-deep px-2 py-0.5 text-[10px] font-semibold text-muted">
+              DEMO
+            </span>
+          )}
           <span className="text-[12px] text-faint">
             {p.category} · spec by <span className="text-muted">{p.spec_author}</span>
           </span>

@@ -32,7 +32,7 @@ export default function RunResults({ runs, slug }: { runs: RunWithResults[]; slu
               </span>
             </summary>
             <ul className="border-t border-line/60 bg-paper/50 py-1">
-              {run.results.map((r) => (
+              {run.results.map((r, resultIndex) => (
                 <li key={r.id} className="flex items-start gap-2.5 px-5 py-1.5 text-[13px]">
                   <span
                     className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
@@ -43,10 +43,14 @@ export default function RunResults({ runs, slug }: { runs: RunWithResults[]; slu
                   </span>
                   <div className="min-w-0 flex-1">
                     <span className={r.status === "pass" ? "text-muted" : "font-medium text-ink"}>
-                      {r.name}
+                      {r.kind === "holdout"
+                        ? `Hidden holdout #${run.results
+                            .slice(0, resultIndex + 1)
+                            .filter((item) => item.kind === "holdout").length}`
+                        : r.name}
                     </span>
                     <span className="ml-2 font-mono text-[10px] text-faint">{r.kind}</span>
-                    {r.detail && (
+                    {r.detail && r.kind !== "holdout" && (
                       <pre className="mt-1 overflow-x-auto rounded-lg bg-ink px-3 py-2 font-mono text-[11px] leading-relaxed text-fail-soft">
                         {r.detail}
                       </pre>

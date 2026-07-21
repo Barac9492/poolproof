@@ -134,7 +134,7 @@ export default async function CreditsPage({
       <div className="mt-8 rounded-2xl border border-line bg-card p-5 text-[13px] leading-relaxed text-muted">
         <span className="font-mono text-[11px] tracking-[0.14em] text-ink-soft">THE RULES</span> ·
         Credits fund verified build attempts. Escrowed credits refund in full if no green by the
-        project deadline. Released escrow (after green + review window) is final. Credits have no
+        project deadline. Escrow released by an authenticated green run is final. Credits have no
         cash value in beta. See{" "}
         <Link href="/refunds" className="text-pine hover:underline">
           refund policy

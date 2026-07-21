@@ -1,6 +1,5 @@
-// Attempt 2 — full GitHub alert semantics: all five kinds, case-insensitive,
-// tolerant of the compact ">[!NOTE]" form, unknown kinds fall back to a
-// plain blockquote, multiple alerts per document.
+// Public candidate artifact. Its behavior is inspectable by design;
+// production verification still uses independently rotated private cases.
 
 const KINDS = {
   note: "Note",

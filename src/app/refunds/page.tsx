@@ -4,7 +4,7 @@ export const metadata = { title: "Refund policy — Poolproof" };
 
 export default function RefundsPage() {
   return (
-    <Legal title="Refund Policy" updated="2026-07-11">
+    <Legal title="Refund Policy" updated="2026-07-21">
       <h2>The rule</h2>
       <p>
         Money moves only on green. Until a verification run passes the full acceptance suite,
@@ -18,8 +18,8 @@ export default function RefundsPage() {
       </p>
       <h2>What is not refundable</h2>
       <p>
-        Released escrow (after a green run and the 48-hour review window) is final. Builder
-        stakes forfeited by expired slots are burned per the terms, not refunded.
+        Escrow released by an authenticated green run within both the project and slot deadlines
+        is final. Builder stake portions forfeited by expired slots are burned per the terms, not refunded.
       </p>
       <h2>Reconciliation</h2>
       <p>

@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (commit the key-only example, never real values)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,6 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# private local holdout suites (production copies live in sensitive env vars)
+specs/*/holdout.test.mjs
 
 # local sqlite database
 fablepool.db

@@ -6,12 +6,13 @@ import {
   pledge,
   claimSlot,
   getProject,
+  getRunnableSlot,
   createSpec,
   setVote,
   toggleWatch,
   addComment,
 } from "@/lib/db";
-import { runVerification, specExists } from "@/lib/runner";
+import { runVerification, specExists, verificationSuiteReady } from "@/lib/runner";
 import { CREDIT_PACKS, paymentsEnabled, createCheckoutSession, type PackId } from "@/lib/polar";
 import { cookies } from "next/headers";
 import {
@@ -22,6 +23,8 @@ import {
   isValidHandle,
 } from "@/lib/auth";
 import { isHandleTaken, createOAuthUser, type OAuthProvider } from "@/lib/db";
+import { SLOT_STAKE_RATIO } from "@/lib/economy";
+import { safeNextPath } from "@/lib/navigation";
 
 function refresh(slug: string) {
   revalidatePath("/");
@@ -70,7 +73,7 @@ export async function completeOnboardingAction(formData: FormData) {
   }
   await setSessionCookie(id);
   jar.delete("oauth_pending");
-  redirect(pending.next.startsWith("/") ? pending.next : "/");
+  redirect(safeNextPath(pending.next));
 }
 
 export async function logoutAction() {
@@ -86,8 +89,9 @@ export async function pledgeAction(id: number, formData: FormData) {
   if (!p) return;
   if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
   const amount = Number(formData.get("amount"));
+  const requestId = String(formData.get("idempotency_key") || "");
   if (Number.isFinite(amount) && amount > 0) {
-    await pledge(id, user.handle, Math.floor(amount));
+    await pledge(id, user.handle, Math.floor(amount), requestId);
   }
   refresh(p.slug);
 }
@@ -97,7 +101,8 @@ export async function claimSlotAction(id: number) {
   const p = await getProject(id);
   if (!p) return;
   if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
-  const stake = Math.max(1, Math.floor(p.goal_credits * 0.05));
+  if (p.is_demo === 1 || !verificationSuiteReady(p.slug)) return;
+  const stake = Math.max(1, Math.floor(p.goal_credits * SLOT_STAKE_RATIO));
   await claimSlot(id, user.handle, stake);
   refresh(p.slug);
 }
@@ -108,11 +113,20 @@ export async function runVerificationAction(id: number, formData: FormData) {
   if (!p) return;
   if (!user) redirect(`/login?next=${encodeURIComponent(`/p/${p.slug}`)}`);
   const submission = String(formData.get("submission") || "");
-  if (p.status !== "building" || !submission) return;
+  const slot = await getRunnableSlot(p.id, user.handle);
+  if (
+    p.status !== "building" ||
+    p.is_demo === 1 ||
+    !verificationSuiteReady(p.slug) ||
+    !slot ||
+    slot.builder.toLowerCase() !== user.handle.toLowerCase() ||
+    !submission
+  ) return;
   try {
-    await runVerification(p.id, p.slug, submission);
-  } catch {
-    // unknown submission — no run recorded
+    await runVerification(p.id, p.slug, submission, slot.id, user.handle);
+  } catch (error) {
+    // Never hide settlement/reconciliation failures as an ordinary red run.
+    console.error(`[verification] ${p.slug}: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`);
   }
   refresh(p.slug);
 }

@@ -20,7 +20,7 @@ execution risk.
 4. **Pay-on-green** — the verification runner ([src/lib/runner.ts](src/lib/runner.ts)
    + [specs/_harness.mjs](specs/_harness.mjs)) executes the public suite **plus
    hidden holdout tests** in an isolated child process. All green → escrow
-   splits automatically: 74% builder · 15% maintenance annuity · 3% spec author
+   splits automatically: 74% builder · 15% maintenance reserve · 3% spec author
    · 8% platform. Any red → logged forever, nothing moves.
 
 Founding specs in `specs/` are based on real, long-open OSS feature requests
@@ -29,6 +29,7 @@ Founding specs in `specs/` are based on real, long-open OSS feature requests
 ## Stack
 
 - Next.js 16 (App Router, Server Actions) + TypeScript + Tailwind 4
+- Node.js >=22.13 (required by the verifier permission model)
 - [libSQL / Turso](https://turso.tech) persistence (local file in dev)
 - [Polar](https://polar.sh) (Merchant of Record) for credit payments
 - GitHub + Google OAuth (state CSRF, Google PKCE, verified-email only)
@@ -47,11 +48,9 @@ fully without any secrets.
 ## Deploy with durable storage (Turso)
 
 The same SQLite dialect runs locally and in production — production just points
-at a hosted [Turso](https://turso.tech) database instead of a file. **Without
-`TURSO_DATABASE_URL`, a serverless deploy falls back to an ephemeral `/tmp`
-SQLite that is wiped on every cold start** (pledges, game plays, and the
-leaderboard reset). The fallback logs a loud warning and `/api/health` reports
-`"durable": false`, so a misconfigured deploy is never silent.
+at a hosted [Turso](https://turso.tech) database instead of a file. A Vercel
+runtime without `TURSO_DATABASE_URL` now fails closed; it never accepts state
+into an ephemeral `/tmp` database.
 
 ```bash
 # one-time, with the Turso CLI
@@ -60,40 +59,51 @@ turso db show poolproof --url          # → TURSO_DATABASE_URL  (libsql://…)
 turso db tokens create poolproof       # → TURSO_AUTH_TOKEN
 ```
 
-Set both in the Vercel project (Production **and** Preview environments), then
-redeploy. Migrations and the founding seed run automatically on first request —
-seeding is race-safe, so concurrent cold starts on the shared DB never
-double-seed. Verify:
+Set both in the Vercel project (Production **and** Preview environments). Also
+set a random sensitive `CRON_SECRET`; Vercel sends it as the bearer credential
+to `/api/cron/tick`, which performs deadline refunds and slot expiry. Configure
+all five `HOLDOUT_*_B64` variables listed in `src/lib/holdouts.ts`, then redeploy.
+Migrations and founding demo seeds are failure-atomic and race-safe. Verify:
 
 ```bash
 curl https://poolproof.dev/api/health
-# {"ok":true,"db":"turso","durable":true,"stats":{…}}
+# {"ok":true,"db":"turso","durable":true,"holdoutsConfigured":true,"cronConfigured":true,…}
+
+# vercel.json runs housekeeping daily at 03:00 UTC; verify the bearer gate:
+curl -H "Authorization: Bearer $CRON_SECRET" https://poolproof.dev/api/cron/tick
 ```
 
-`db` is one of `turso` (durable), `ephemeral` (Vercel, no Turso — data resets),
-or `local` (dev file).
+A healthy deployment reports `db: "turso"`, `durable: true`, and
+`holdoutsConfigured: true`. Local development reports `db: "local"`.
 
 ## Try the verification harness
 
-Run any spec's public suite against a candidate module, exactly as the server
-does:
+Run a spec's public suite against a candidate module:
 
 ```bash
-node specs/_harness.mjs specs/markdown-alerts submissions/markdown-alerts/index.mjs   # 10/10 → green
-node specs/_harness.mjs specs/markdown-alerts submissions/markdown-alerts/attempt-1.mjs # overfits → red on holdouts
+PP_RESULT_SECRET=0123456789abcdef0123456789abcdef \
+  node --experimental-vm-modules specs/_harness.mjs \
+  specs/markdown-alerts submissions/markdown-alerts/index.mjs
 ```
+
+Production loads rotated private holdouts from sensitive environment variables;
+they are never committed to this public repository. The trusted harness signs
+an exact test manifest for each run, and the parent rejects candidate-controlled
+stdout, missing tests, or early exits. Local spec authors can use an ignored
+`specs/<slug>/holdout.test.mjs` while developing a suite.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [poolproof.dev/docs/building](https://poolproof.dev/docs/building).
 
 ## Status & limitations (public beta)
 
-- Credits are prepaid units, not equity or tokens. Payments run through Polar
-  in sandbox during the beta.
-- The verification harness runs submissions in a hardened child process (clean
-  env, Node `--permission` scoped to `specs/`/`submissions/`, no child
-  processes). **Network isolation is the last sandbox layer, still in progress**
-  — until it lands, only vetted submissions run. Self-serve git-connected
-  submission is the next milestone.
+- Founding pools are clearly marked read-only demos with synthetic credits and
+  cannot move a user's balance.
+- Credits are prepaid units, not equity or tokens. Polar is hard-limited to its
+  sandbox during the beta; production payment credentials remain disabled.
+- The verification harness runs submissions in a separate VM realm inside a
+  permission-restricted child process: no imports, host objects, environment,
+  filesystem, network global, workers, or child processes. A separate OS sandbox
+  remains planned as defense in depth; until then, only vetted submissions run.
 
 MIT-licensed. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
